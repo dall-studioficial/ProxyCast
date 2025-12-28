@@ -823,7 +823,7 @@ class MainActivity : ComponentActivity() {
             
             // Set proxyHostAddress for clients (non-group owners)
             if (!info.isGroupOwner) {
-                proxyHostAddress = info.groupOwnerAddress?.hostAddress.orEmpty()
+                proxyHostAddress = info.groupOwnerAddress?.hostAddress ?: ""
                 Log.d(TAG, "Client connected - Set proxyHostAddress to: $proxyHostAddress")
             }
             
