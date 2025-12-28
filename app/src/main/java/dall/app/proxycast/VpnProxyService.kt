@@ -39,10 +39,18 @@ class VpnProxyService : VpnService() {
         private const val VPN_PREFIX_LENGTH = 0
         private const val VPN_MTU = 1500
         private const val VPN_DNS = "8.8.8.8"
+        
+        // IP and protocol constants
+        private const val IPV4_VERSION = 4
+        private const val IP_PROTOCOL_OFFSET = 9
+        private const val TCP_PROTOCOL = 6
+        private const val IP_DEST_OFFSET = 16
+        private const val MAX_HEADER_LINES = 50 // Prevent infinite loop in header reading
     }
 
     private var vpnInterface: ParcelFileDescriptor? = null
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    @Volatile
     private var isRunning = false
     private var proxyHost: String = ""
     private var proxyPort: Int = ProxyServerService.PROXY_PORT
@@ -223,25 +231,25 @@ class VpnProxyService : VpnService() {
             if (packet.size < 20) return
             
             val version = (packet[0].toInt() shr 4) and 0x0F
-            if (version != 4) {
+            if (version != IPV4_VERSION) {
                 // Only handle IPv4 for this POC
                 Log.d(TAG, "Ignoring non-IPv4 packet")
                 return
             }
             
-            val protocol = packet[9].toInt() and 0xFF
+            val protocol = packet[IP_PROTOCOL_OFFSET].toInt() and 0xFF
             
             // Extract destination IP
             val destIp = String.format(
                 "%d.%d.%d.%d",
-                packet[16].toInt() and 0xFF,
-                packet[17].toInt() and 0xFF,
-                packet[18].toInt() and 0xFF,
-                packet[19].toInt() and 0xFF
+                packet[IP_DEST_OFFSET].toInt() and 0xFF,
+                packet[IP_DEST_OFFSET + 1].toInt() and 0xFF,
+                packet[IP_DEST_OFFSET + 2].toInt() and 0xFF,
+                packet[IP_DEST_OFFSET + 3].toInt() and 0xFF
             )
             
             // For this POC, we'll route TCP packets through the proxy
-            if (protocol == 6) { // TCP
+            if (protocol == TCP_PROTOCOL) {
                 // Extract destination port
                 val ihl = (packet[0].toInt() and 0x0F) * 4
                 if (packet.size < ihl + 4) return
@@ -281,17 +289,20 @@ class VpnProxyService : VpnService() {
             // Read proxy response
             val response = proxySocket.getInputStream().bufferedReader().readLine()
             
-            if (response?.contains("200") == true) {
+            // Check for proper HTTP 200 status line format
+            if (response?.startsWith("HTTP/1.") == true && response.contains(" 200 ")) {
                 Log.d(TAG, "Proxy connection established to $destIp:$destPort")
                 
                 // Forward data through proxy
                 // Note: This is a simplified implementation
                 // A production VPN would need a full TCP/IP stack implementation
                 
-                // Read remaining headers
-                while (true) {
+                // Read remaining headers with limit to prevent hanging
+                var headerCount = 0
+                while (headerCount < MAX_HEADER_LINES) {
                     val line = proxySocket.getInputStream().bufferedReader().readLine()
                     if (line.isNullOrEmpty()) break
+                    headerCount++
                 }
                 
                 // Send original packet data through proxy

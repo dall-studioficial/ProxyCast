@@ -528,7 +528,7 @@ class MainActivity : ComponentActivity() {
     
     private fun startVpnClient() {
         if (proxyHostAddress.isEmpty()) {
-            statusText = "Cannot start VPN: No proxy host address available. Connect to a group first."
+            statusText = "Cannot start VPN: Connect to a Wi-Fi Direct group as a client first to get the proxy server address."
             return
         }
         
