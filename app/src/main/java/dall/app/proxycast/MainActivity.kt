@@ -191,25 +191,31 @@ class MainActivity : ComponentActivity() {
         if (trimmed.startsWith("DIRECT-", ignoreCase = true)) {
             // Ensure it's uppercase DIRECT- and limit to 32 chars
             if (trimmed.length > 7) {
-                val normalized = "DIRECT-" + trimmed.substring(7)
-                return normalized.take(32)
+                val suffix = trimmed.substring(7)
+                return ("DIRECT-" + suffix).take(32)
             } else {
                 // Input is exactly "DIRECT-" or shorter - add default suffix
                 return "DIRECT-xx-".take(32)
             }
         }
         
-        // Auto-add DIRECT-xy- prefix (xy = first 2 chars of input for identification)
-        // Use first 2 chars of input as unique identifier if available
-        val uniqueId = if (trimmed.length >= 2) {
-            trimmed.substring(0, 2)
-        } else if (trimmed.length == 1) {
-            "${trimmed[0]}x"
-        } else {
-            "xx"
+        // Auto-add DIRECT-xy- prefix
+        // For short inputs (1-2 chars), use them as-is for uniqueId
+        // For longer inputs, use first 2 chars as uniqueId and remaining as suffix
+        if (trimmed.length <= 2) {
+            // Short input - use entire input as suffix with padding for uniqueId
+            val uniqueId = if (trimmed.length == 2) {
+                trimmed
+            } else {
+                trimmed + "x"
+            }
+            return "DIRECT-$uniqueId-"
         }
         
-        val withPrefix = "DIRECT-$uniqueId-$trimmed"
+        // Long input - use first 2 chars as uniqueId, rest as suffix
+        val uniqueId = trimmed.substring(0, 2)
+        val suffix = trimmed.substring(2)
+        val withPrefix = "DIRECT-$uniqueId-$suffix"
         return withPrefix.take(32)
     }
     
@@ -655,7 +661,7 @@ fun WifiDirectProxyScreen(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "• SSID: Enter suffix only - automatically prefixed with 'DIRECT-XY-' (XY = first 2 chars of your input)\n• Max 32 chars total (suffix trimmed if needed)\n• Passphrase: Required 8-63 characters\n• Leave empty to use system defaults\n• System may override custom values; check displayed credentials after creation",
+                        text = "• SSID: Enter suffix only - automatically prefixed with 'DIRECT-XY-'\n  - For 3+ char input: XY = first 2 chars, remaining is suffix\n  - Example: 'MyNetwork' → 'DIRECT-My-Network'\n• Max 32 chars total (trimmed if needed)\n• Passphrase: Optional, 8-63 characters if provided\n• Leave empty to use system defaults\n• System may override; check displayed credentials after creation",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSecondaryContainer
                     )
