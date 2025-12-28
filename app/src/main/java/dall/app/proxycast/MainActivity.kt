@@ -1,6 +1,7 @@
 package dall.app.proxycast
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -18,10 +19,14 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import dall.app.proxycast.ui.theme.ProxyCastTheme
@@ -45,6 +50,9 @@ class MainActivity : ComponentActivity() {
     private var statusText by mutableStateOf("Ready")
     private var isWifiP2pEnabled by mutableStateOf(false)
     private var peersList = mutableStateListOf<WifiP2pDevice>()
+    private var groupSsid by mutableStateOf("")
+    private var groupPassphrase by mutableStateOf("")
+    private var isGroupOwner by mutableStateOf(false)
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -61,8 +69,39 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        // Initialize Wi-Fi P2P
-        wifiP2pManager = getSystemService(Context.WIFI_P2P_SERVICE) as WifiP2pManager
+        // Initialize Wi-Fi P2P with null safety
+        val manager = getSystemService(Context.WIFI_P2P_SERVICE) as? WifiP2pManager
+        if (manager == null) {
+            Log.e(TAG, "Wi-Fi P2P is not supported on this device")
+            setContent {
+                ProxyCastTheme {
+                    Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(innerPadding)
+                                .padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Text(
+                                text = "Wi-Fi Direct Not Supported",
+                                style = MaterialTheme.typography.headlineMedium,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = "This device does not support Wi-Fi Direct (Wi-Fi P2P).",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                    }
+                }
+            }
+            return
+        }
+        
+        wifiP2pManager = manager
         channel = wifiP2pManager.initialize(this, mainLooper, null)
         receiver = WifiDirectReceiver(wifiP2pManager, channel, this)
 
@@ -75,7 +114,11 @@ class MainActivity : ComponentActivity() {
                     WifiDirectProxyScreen(
                         modifier = Modifier.padding(innerPadding),
                         statusText = statusText,
-                        onCreateGroup = { createGroup() },
+                        groupSsid = groupSsid,
+                        groupPassphrase = groupPassphrase,
+                        isGroupOwner = isGroupOwner,
+                        onCreateGroup = { ssid, password -> createGroup(ssid, password) },
+                        onStopGroup = { stopGroup() },
                         onDiscoverPeers = { discoverPeers() },
                         onConnectToPeer = { connectToFirstPeer() }
                     )
@@ -106,6 +149,7 @@ class MainActivity : ComponentActivity() {
     private fun requestRequiredPermissions() {
         val permissions = mutableListOf(
             Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_COARSE_LOCATION,
             Manifest.permission.ACCESS_WIFI_STATE,
             Manifest.permission.CHANGE_WIFI_STATE,
             Manifest.permission.ACCESS_NETWORK_STATE,
@@ -126,7 +170,8 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun createGroup() {
+    @SuppressLint("MissingPermission")
+    private fun createGroup(ssid: String = "", password: String = "") {
         if (!checkPermissions()) {
             statusText = "Missing required permissions"
             return
@@ -135,20 +180,52 @@ class MainActivity : ComponentActivity() {
         Log.d(TAG, "Creating Wi-Fi Direct group")
         statusText = "Creating group..."
 
-        wifiP2pManager.createGroup(channel, object : WifiP2pManager.ActionListener {
-            override fun onSuccess() {
-                Log.d(TAG, "Group created successfully")
-                statusText = "Group created! Starting proxy server..."
-                startProxyService()
+        // Use WifiP2pConfig.Builder for API 29+ if SSID or password is provided
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && (ssid.isNotEmpty() || password.isNotEmpty())) {
+            val configBuilder = WifiP2pConfig.Builder()
+            
+            if (ssid.isNotEmpty()) {
+                configBuilder.setNetworkName(ssid)
+                Log.d(TAG, "Setting network name: $ssid")
             }
+            
+            if (password.isNotEmpty()) {
+                configBuilder.setPassphrase(password)
+                Log.d(TAG, "Setting passphrase")
+            }
+            
+            val config = configBuilder.build()
+            
+            wifiP2pManager.createGroup(channel, config, object : WifiP2pManager.ActionListener {
+                override fun onSuccess() {
+                    Log.d(TAG, "Group created successfully with custom config")
+                    statusText = "Group created! Requesting group info..."
+                    requestGroupInfo()
+                }
 
-            override fun onFailure(reason: Int) {
-                Log.e(TAG, "Failed to create group: $reason")
-                statusText = "Failed to create group (code: $reason)"
-            }
-        })
+                override fun onFailure(reason: Int) {
+                    Log.e(TAG, "Failed to create group: $reason")
+                    statusText = "Failed to create group (code: $reason)"
+                }
+            })
+        } else {
+            // Fallback for API < 29 or when no SSID/password is provided
+            wifiP2pManager.createGroup(channel, object : WifiP2pManager.ActionListener {
+                override fun onSuccess() {
+                    Log.d(TAG, "Group created successfully")
+                    statusText = "Group created! Requesting group info..."
+                    requestGroupInfo()
+                }
+
+                override fun onFailure(reason: Int) {
+                    Log.e(TAG, "Failed to create group: $reason")
+                    statusText = "Failed to create group (code: $reason)"
+                }
+            })
+        }
     }
 
+    @SuppressLint("MissingPermission")
     private fun discoverPeers() {
         if (!checkPermissions()) {
             statusText = "Missing required permissions"
@@ -171,6 +248,7 @@ class MainActivity : ComponentActivity() {
         })
     }
 
+    @SuppressLint("MissingPermission")
     private fun connectToFirstPeer() {
         if (peersList.isEmpty()) {
             statusText = "No peers available. Discover peers first."
@@ -208,6 +286,39 @@ class MainActivity : ComponentActivity() {
         statusText = "Proxy server started on port ${ProxyServerService.PROXY_PORT}"
     }
 
+    @SuppressLint("MissingPermission") // Permission checked before Wi-Fi P2P operations
+    private fun stopGroup() {
+        if (!checkPermissions()) {
+            statusText = "Missing required permissions"
+            return
+        }
+
+        Log.d(TAG, "Stopping Wi-Fi Direct group")
+        statusText = "Stopping group..."
+
+        wifiP2pManager.removeGroup(channel, object : WifiP2pManager.ActionListener {
+            override fun onSuccess() {
+                Log.d(TAG, "Group removed successfully")
+                isGroupOwner = false
+                groupSsid = ""
+                groupPassphrase = ""
+                statusText = "Group stopped. Ready to create a new group."
+                stopProxyService()
+            }
+
+            override fun onFailure(reason: Int) {
+                Log.e(TAG, "Failed to remove group: $reason")
+                statusText = "Failed to stop group (code: $reason)"
+            }
+        })
+    }
+
+    private fun stopProxyService() {
+        val intent = Intent(this, ProxyServerService::class.java)
+        stopService(intent)
+        Log.d(TAG, "Proxy service stopped")
+    }
+
     private fun checkPermissions(): Boolean {
         val permissions = listOf(
             Manifest.permission.ACCESS_FINE_LOCATION,
@@ -217,6 +328,56 @@ class MainActivity : ComponentActivity() {
 
         return permissions.all {
             ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+
+    @SuppressLint("MissingPermission") // Permission checked in checkPermissions() before calling
+    private fun requestGroupInfo() {
+        wifiP2pManager.requestGroupInfo(channel) { group ->
+            if (group != null) {
+                val ssid = group.networkName ?: "N/A"
+                val passphrase = group.passphrase ?: "N/A"
+                
+                groupSsid = ssid
+                groupPassphrase = passphrase
+                isGroupOwner = group.isGroupOwner
+                
+                Log.d(TAG, "Group info - SSID: $ssid, Passphrase: $passphrase, isGroupOwner: ${group.isGroupOwner}")
+                statusText = "Group created!\nSSID: $ssid\nPassphrase: $passphrase\nStarting proxy server..."
+                startProxyService()
+            } else {
+                Log.w(TAG, "Group info is null")
+                statusText = "Group created but couldn't retrieve info. Starting proxy server..."
+                startProxyService()
+            }
+        }
+    }
+
+    @SuppressLint("MissingPermission") // Permission checked before Wi-Fi P2P operations
+    private fun updateGroupInfoInStatus(info: WifiP2pInfo) {
+        isGroupOwner = info.isGroupOwner
+        
+        wifiP2pManager.requestGroupInfo(channel) { group ->
+            val role = if (info.isGroupOwner) "Group Owner (Host)" else "Client"
+            val address = info.groupOwnerAddress?.hostAddress ?: "unknown"
+            
+            if (group != null) {
+                val ssid = group.networkName ?: "N/A"
+                val passphrase = group.passphrase ?: "N/A"
+                
+                groupSsid = ssid
+                groupPassphrase = passphrase
+                
+                statusText = "Connected as $role\nGroup owner IP: $address\nSSID: $ssid\nPassphrase: $passphrase"
+            } else {
+                statusText = "Connected as $role\nGroup owner IP: $address"
+            }
+            
+            if (info.isGroupOwner) {
+                statusText += "\nProxy running on port ${ProxyServerService.PROXY_PORT}"
+            } else {
+                statusText += "\nUse proxy: $address:${ProxyServerService.PROXY_PORT}"
+            }
         }
     }
 
@@ -243,18 +404,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    @SuppressLint("MissingPermission")
     fun onConnectionInfoAvailable(info: WifiP2pInfo) {
         if (info.groupFormed) {
-            val role = if (info.isGroupOwner) "Group Owner (Host)" else "Client"
-            val address = info.groupOwnerAddress?.hostAddress ?: "unknown"
-            Log.d(TAG, "Connected as $role, group owner: $address")
-            statusText = "Connected as $role\nGroup owner IP: $address"
-            
-            if (info.isGroupOwner) {
-                statusText += "\nProxy running on port ${ProxyServerService.PROXY_PORT}"
-            } else {
-                statusText += "\nUse proxy: $address:${ProxyServerService.PROXY_PORT}"
-            }
+            Log.d(TAG, "Connected as ${if (info.isGroupOwner) "Group Owner" else "Client"}")
+            updateGroupInfoInStatus(info)
         }
     }
 }
@@ -263,10 +417,18 @@ class MainActivity : ComponentActivity() {
 fun WifiDirectProxyScreen(
     modifier: Modifier = Modifier,
     statusText: String,
-    onCreateGroup: () -> Unit,
+    groupSsid: String,
+    groupPassphrase: String,
+    isGroupOwner: Boolean,
+    onCreateGroup: (String, String) -> Unit,
+    onStopGroup: () -> Unit,
     onDiscoverPeers: () -> Unit,
     onConnectToPeer: () -> Unit
 ) {
+    var ssidInput by remember { mutableStateOf("") }
+    var passwordInput by remember { mutableStateOf("") }
+    var showPassword by remember { mutableStateOf(false) }
+    
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -277,16 +439,69 @@ fun WifiDirectProxyScreen(
         Text(
             text = "Wi-Fi Direct Proxy",
             style = MaterialTheme.typography.headlineMedium,
-            modifier = Modifier.padding(bottom = 32.dp)
+            modifier = Modifier.padding(bottom = 16.dp)
         )
 
-        Button(
-            onClick = onCreateGroup,
+        // SSID Input
+        OutlinedTextField(
+            value = ssidInput,
+            onValueChange = { ssidInput = it },
+            label = { Text("Network Name (SSID)") },
+            placeholder = { Text("Optional - Leave empty for default") },
+            singleLine = true,
+            enabled = !isGroupOwner,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 8.dp)
-        ) {
-            Text("Create Group + Start Proxy (Host)")
+                .padding(vertical = 4.dp)
+        )
+
+        // Password Input
+        OutlinedTextField(
+            value = passwordInput,
+            onValueChange = { passwordInput = it },
+            label = { Text("Password") },
+            placeholder = { Text("Optional - Leave empty for default") },
+            singleLine = true,
+            enabled = !isGroupOwner,
+            visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            trailingIcon = {
+                TextButton(onClick = { showPassword = !showPassword }) {
+                    Text(
+                        text = if (showPassword) "HIDE" else "SHOW",
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp)
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Show different buttons based on group owner status
+        if (isGroupOwner) {
+            Button(
+                onClick = onStopGroup,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error
+                )
+            ) {
+                Text("Stop Group + Proxy")
+            }
+        } else {
+            Button(
+                onClick = { onCreateGroup(ssidInput, passwordInput) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp)
+            ) {
+                Text("Create Group + Start Proxy (Host)")
+            }
         }
 
         Button(
@@ -307,7 +522,32 @@ fun WifiDirectProxyScreen(
             Text("Connect to First Peer")
         }
 
-        Spacer(modifier = Modifier.height(32.dp))
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Display current group info if available
+        if (groupSsid.isNotEmpty() && groupSsid != "N/A") {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "Current Group:",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    Text(
+                        text = "SSID: $groupSsid",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Text(
+                        text = "Passphrase: $groupPassphrase",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            }
+        }
 
         Card(
             modifier = Modifier.fillMaxWidth()
