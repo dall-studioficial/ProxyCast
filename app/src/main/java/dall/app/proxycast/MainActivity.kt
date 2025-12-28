@@ -575,8 +575,7 @@ class MainActivity : ComponentActivity() {
             }
             
             isVpnActive = true
-            val successMessage = "VPN client started. All traffic routing through $proxyHostAddress:${ProxyServerService.PROXY_PORT}"
-            statusText = successMessage
+            statusText = "VPN client started. All traffic routing through $proxyHostAddress:${ProxyServerService.PROXY_PORT}"
             Toast.makeText(this, "VPN active! Traffic routing through proxy.", Toast.LENGTH_LONG).show()
             Log.d(TAG, "VPN proxy service started successfully")
             

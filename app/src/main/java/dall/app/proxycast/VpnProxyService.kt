@@ -172,9 +172,7 @@ class VpnProxyService : VpnService() {
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to start foreground service", e)
                 // Clean up and stop service
-                vpnInterface?.close()
-                vpnInterface = null
-                isRunning = false
+                stopVpn()
                 stopSelf()
                 return
             }
