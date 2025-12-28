@@ -42,6 +42,9 @@ class MainActivity : ComponentActivity() {
     companion object {
         private const val TAG = "MainActivity"
         private const val DEFAULT_SSID_IDENTIFIER = "xx"
+        private const val PREFS_NAME = "ProxyCastPrefs"
+        private const val PREF_SSID = "saved_ssid"
+        private const val PREF_PASSPHRASE = "saved_passphrase"
     }
 
     private lateinit var wifiP2pManager: WifiP2pManager
@@ -66,6 +69,8 @@ class MainActivity : ComponentActivity() {
     private var ipv6Address by mutableStateOf("")
     private var isVpnActive by mutableStateOf(false)
     private var proxyHostAddress by mutableStateOf("")
+    private var savedSsid by mutableStateOf("")
+    private var savedPassphrase by mutableStateOf("")
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -95,6 +100,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        // Load saved SSID and passphrase from SharedPreferences
+        loadSavedCredentials()
 
         // Initialize Wi-Fi P2P with null safety
         val manager = getSystemService(Context.WIFI_P2P_SERVICE) as? WifiP2pManager
@@ -149,6 +157,8 @@ class MainActivity : ComponentActivity() {
                         ipv4Address = ipv4Address,
                         ipv6Address = ipv6Address,
                         isVpnActive = isVpnActive,
+                        savedSsid = savedSsid,
+                        savedPassphrase = savedPassphrase,
                         onCreateGroup = { ssid, password, band, ipPref -> createGroup(ssid, password, band, ipPref) },
                         onStopGroup = { stopGroup() },
                         onDiscoverPeers = { discoverPeers() },
@@ -322,6 +332,9 @@ class MainActivity : ComponentActivity() {
             statusText = "Please fix validation errors before creating group"
             return
         }
+
+        // Save credentials for next app restart
+        saveCredentials(ssid, password)
 
         Log.d(TAG, "Creating Wi-Fi Direct group with band: $band, IP preference: $ipPreference")
         statusText = "Creating group..."
@@ -613,6 +626,31 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Load saved SSID and passphrase from SharedPreferences
+     */
+    private fun loadSavedCredentials() {
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        savedSsid = prefs.getString(PREF_SSID, "") ?: ""
+        savedPassphrase = prefs.getString(PREF_PASSPHRASE, "") ?: ""
+        Log.d(TAG, "Loaded saved credentials - SSID: '$savedSsid', Passphrase length: ${savedPassphrase.length}")
+    }
+
+    /**
+     * Save SSID and passphrase to SharedPreferences
+     */
+    private fun saveCredentials(ssid: String, passphrase: String) {
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().apply {
+            putString(PREF_SSID, ssid)
+            putString(PREF_PASSPHRASE, passphrase)
+            apply()
+        }
+        savedSsid = ssid
+        savedPassphrase = passphrase
+        Log.d(TAG, "Saved credentials - SSID: '$ssid', Passphrase length: ${passphrase.length}")
+    }
+
     @SuppressLint("MissingPermission") // Permission checked in checkPermissions() before calling
     private fun requestGroupInfo() {
         wifiP2pManager.requestGroupInfo(channel) { group ->
@@ -641,6 +679,7 @@ class MainActivity : ComponentActivity() {
         
         // Save proxy host address for VPN client
         proxyHostAddress = info.groupOwnerAddress?.hostAddress ?: ""
+        Log.d(TAG, "updateGroupInfoInStatus - proxyHostAddress set to: $proxyHostAddress (isGroupOwner: $isGroupOwner)")
         
         // Detect IPv4 and IPv6 addresses
         detectIpAddresses(info)
@@ -781,6 +820,13 @@ class MainActivity : ComponentActivity() {
     fun onConnectionInfoAvailable(info: WifiP2pInfo) {
         if (info.groupFormed) {
             Log.d(TAG, "Connected as ${if (info.isGroupOwner) "Group Owner" else "Client"}")
+            
+            // Set proxyHostAddress for clients (non-group owners)
+            if (!info.isGroupOwner) {
+                proxyHostAddress = info.groupOwnerAddress?.hostAddress.orEmpty()
+                Log.d(TAG, "Client connected - Set proxyHostAddress to: $proxyHostAddress")
+            }
+            
             updateGroupInfoInStatus(info)
         }
     }
@@ -799,6 +845,8 @@ fun WifiDirectProxyScreen(
     ipv4Address: String,
     ipv6Address: String,
     isVpnActive: Boolean,
+    savedSsid: String,
+    savedPassphrase: String,
     onCreateGroup: (String, String, String, String) -> Unit,
     onStopGroup: () -> Unit,
     onDiscoverPeers: () -> Unit,
@@ -806,8 +854,8 @@ fun WifiDirectProxyScreen(
     onStartVpnClient: () -> Unit,
     onStopVpnClient: () -> Unit
 ) {
-    var ssidInput by remember { mutableStateOf("") }
-    var passwordInput by remember { mutableStateOf("") }
+    var ssidInput by remember { mutableStateOf(savedSsid) }
+    var passwordInput by remember { mutableStateOf(savedPassphrase) }
     var showPassword by remember { mutableStateOf(false) }
     var selectedBand by remember { mutableStateOf("auto") }
     var selectedIpPreference by remember { mutableStateOf("auto") }
