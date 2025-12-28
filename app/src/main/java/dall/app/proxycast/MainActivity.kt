@@ -264,7 +264,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    @SuppressLint("MissingPermission")
+    @SuppressLint("MissingPermission") // Permission checked in checkPermissions() before calling
     private fun requestGroupInfo() {
         wifiP2pManager.requestGroupInfo(channel) { group ->
             if (group != null) {
@@ -281,6 +281,32 @@ class MainActivity : ComponentActivity() {
                 Log.w(TAG, "Group info is null")
                 statusText = "Group created but couldn't retrieve info. Starting proxy server..."
                 startProxyService()
+            }
+        }
+    }
+
+    @SuppressLint("MissingPermission") // Permission checked before Wi-Fi P2P operations
+    private fun updateGroupInfoInStatus(info: WifiP2pInfo) {
+        wifiP2pManager.requestGroupInfo(channel) { group ->
+            val role = if (info.isGroupOwner) "Group Owner (Host)" else "Client"
+            val address = info.groupOwnerAddress?.hostAddress ?: "unknown"
+            
+            if (group != null) {
+                val ssid = group.networkName ?: "N/A"
+                val passphrase = group.passphrase ?: "N/A"
+                
+                groupSsid = ssid
+                groupPassphrase = passphrase
+                
+                statusText = "Connected as $role\nGroup owner IP: $address\nSSID: $ssid\nPassphrase: $passphrase"
+            } else {
+                statusText = "Connected as $role\nGroup owner IP: $address"
+            }
+            
+            if (info.isGroupOwner) {
+                statusText += "\nProxy running on port ${ProxyServerService.PROXY_PORT}"
+            } else {
+                statusText += "\nUse proxy: $address:${ProxyServerService.PROXY_PORT}"
             }
         }
     }
@@ -311,36 +337,8 @@ class MainActivity : ComponentActivity() {
     @SuppressLint("MissingPermission")
     fun onConnectionInfoAvailable(info: WifiP2pInfo) {
         if (info.groupFormed) {
-            val role = if (info.isGroupOwner) "Group Owner (Host)" else "Client"
-            val address = info.groupOwnerAddress?.hostAddress ?: "unknown"
-            Log.d(TAG, "Connected as $role, group owner: $address")
-            
-            // Request group info to get SSID and passphrase
-            wifiP2pManager.requestGroupInfo(channel) { group ->
-                if (group != null) {
-                    val ssid = group.networkName ?: "N/A"
-                    val passphrase = group.passphrase ?: "N/A"
-                    
-                    groupSsid = ssid
-                    groupPassphrase = passphrase
-                    
-                    statusText = "Connected as $role\nGroup owner IP: $address\nSSID: $ssid\nPassphrase: $passphrase"
-                    
-                    if (info.isGroupOwner) {
-                        statusText += "\nProxy running on port ${ProxyServerService.PROXY_PORT}"
-                    } else {
-                        statusText += "\nUse proxy: $address:${ProxyServerService.PROXY_PORT}"
-                    }
-                } else {
-                    statusText = "Connected as $role\nGroup owner IP: $address"
-                    
-                    if (info.isGroupOwner) {
-                        statusText += "\nProxy running on port ${ProxyServerService.PROXY_PORT}"
-                    } else {
-                        statusText += "\nUse proxy: $address:${ProxyServerService.PROXY_PORT}"
-                    }
-                }
-            }
+            Log.d(TAG, "Connected as ${if (info.isGroupOwner) "Group Owner" else "Client"}")
+            updateGroupInfoInStatus(info)
         }
     }
 }
@@ -394,8 +392,11 @@ fun WifiDirectProxyScreen(
             visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
             trailingIcon = {
-                IconButton(onClick = { showPassword = !showPassword }) {
-                    Text(if (showPassword) "Hide" else "Show", style = MaterialTheme.typography.bodySmall)
+                TextButton(onClick = { showPassword = !showPassword }) {
+                    Text(
+                        text = if (showPassword) "HIDE" else "SHOW",
+                        style = MaterialTheme.typography.labelSmall
+                    )
                 }
             },
             modifier = Modifier
