@@ -191,7 +191,7 @@ class MainActivity : ComponentActivity() {
         // If already starts with DIRECT-, keep it (user may have specific format)
         if (trimmed.startsWith("DIRECT-", ignoreCase = true)) {
             // Preserve original case and limit to 32 chars
-            if (trimmed.length > 7) {
+            if (trimmed.length > 7) {  // Has content after "DIRECT-" (which is 7 chars)
                 return trimmed.take(32)
             } else {
                 // Input is exactly "DIRECT-" or shorter - add default identifier
