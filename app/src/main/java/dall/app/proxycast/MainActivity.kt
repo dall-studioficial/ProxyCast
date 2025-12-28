@@ -63,6 +63,8 @@ class MainActivity : ComponentActivity() {
     private var passphraseError by mutableStateOf("")
     private var ipv4Address by mutableStateOf("")
     private var ipv6Address by mutableStateOf("")
+    private var isVpnActive by mutableStateOf(false)
+    private var proxyHostAddress by mutableStateOf("")
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -72,6 +74,18 @@ class MainActivity : ComponentActivity() {
             statusText = "Permissions granted. Ready to use Wi-Fi Direct."
         } else {
             statusText = "Required permissions not granted."
+        }
+    }
+    
+    private val vpnPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK) {
+            Log.d(TAG, "VPN permission granted, starting VPN service")
+            startVpnProxyService()
+        } else {
+            Log.e(TAG, "VPN permission denied")
+            statusText = "VPN permission denied. Cannot start VPN client."
         }
     }
 
@@ -131,10 +145,13 @@ class MainActivity : ComponentActivity() {
                         passphraseError = passphraseError,
                         ipv4Address = ipv4Address,
                         ipv6Address = ipv6Address,
+                        isVpnActive = isVpnActive,
                         onCreateGroup = { ssid, password, band, ipPref -> createGroup(ssid, password, band, ipPref) },
                         onStopGroup = { stopGroup() },
                         onDiscoverPeers = { discoverPeers() },
-                        onConnectToPeer = { connectToFirstPeer() }
+                        onConnectToPeer = { connectToFirstPeer() },
+                        onStartVpnClient = { startVpnClient() },
+                        onStopVpnClient = { stopVpnClient() }
                     )
                 }
             }
@@ -508,6 +525,55 @@ class MainActivity : ComponentActivity() {
         stopService(intent)
         Log.d(TAG, "Proxy service stopped")
     }
+    
+    private fun startVpnClient() {
+        if (proxyHostAddress.isEmpty()) {
+            statusText = "Cannot start VPN: Connect to a Wi-Fi Direct group as a client first to get the proxy server address."
+            return
+        }
+        
+        // Check if VPN permission is needed
+        val vpnIntent = android.net.VpnService.prepare(this)
+        if (vpnIntent != null) {
+            // Need to request VPN permission
+            Log.d(TAG, "Requesting VPN permission")
+            statusText = "Requesting VPN permission..."
+            vpnPermissionLauncher.launch(vpnIntent)
+        } else {
+            // Permission already granted, start VPN
+            Log.d(TAG, "VPN permission already granted, starting VPN service")
+            startVpnProxyService()
+        }
+    }
+    
+    private fun startVpnProxyService() {
+        val intent = Intent(this, VpnProxyService::class.java).apply {
+            action = VpnProxyService.ACTION_START_VPN
+            putExtra(VpnProxyService.EXTRA_PROXY_HOST, proxyHostAddress)
+            putExtra(VpnProxyService.EXTRA_PROXY_PORT, ProxyServerService.PROXY_PORT)
+        }
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent)
+        } else {
+            startService(intent)
+        }
+        
+        isVpnActive = true
+        statusText = "VPN client started. All traffic routing through $proxyHostAddress:${ProxyServerService.PROXY_PORT}"
+        Log.d(TAG, "VPN proxy service started")
+    }
+    
+    private fun stopVpnClient() {
+        val intent = Intent(this, VpnProxyService::class.java).apply {
+            action = VpnProxyService.ACTION_STOP_VPN
+        }
+        startService(intent)
+        
+        isVpnActive = false
+        statusText = "VPN client stopped"
+        Log.d(TAG, "VPN proxy service stopped")
+    }
 
     private fun checkPermissions(): Boolean {
         val permissions = listOf(
@@ -546,6 +612,9 @@ class MainActivity : ComponentActivity() {
     @SuppressLint("MissingPermission") // Permission checked before Wi-Fi P2P operations
     private fun updateGroupInfoInStatus(info: WifiP2pInfo) {
         isGroupOwner = info.isGroupOwner
+        
+        // Save proxy host address for VPN client
+        proxyHostAddress = info.groupOwnerAddress?.hostAddress ?: ""
         
         // Detect IPv4 and IPv6 addresses
         detectIpAddresses(info)
@@ -703,10 +772,13 @@ fun WifiDirectProxyScreen(
     passphraseError: String,
     ipv4Address: String,
     ipv6Address: String,
+    isVpnActive: Boolean,
     onCreateGroup: (String, String, String, String) -> Unit,
     onStopGroup: () -> Unit,
     onDiscoverPeers: () -> Unit,
-    onConnectToPeer: () -> Unit
+    onConnectToPeer: () -> Unit,
+    onStartVpnClient: () -> Unit,
+    onStopVpnClient: () -> Unit
 ) {
     var ssidInput by remember { mutableStateOf("") }
     var passwordInput by remember { mutableStateOf("") }
@@ -966,6 +1038,52 @@ fun WifiDirectProxyScreen(
                 .padding(vertical = 8.dp)
         ) {
             Text("Connect to First Peer")
+        }
+
+        // VPN Client buttons - only show when not group owner
+        if (!isGroupOwner) {
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            
+            Text(
+                text = "VPN Client Mode",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(vertical = 8.dp)
+            )
+            
+            Text(
+                text = "Automatically route all device traffic through the proxy",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+            
+            if (isVpnActive) {
+                Button(
+                    onClick = onStopVpnClient,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text("Stop VPN Client")
+                }
+            } else {
+                Button(
+                    onClick = onStartVpnClient,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.secondary
+                    )
+                ) {
+                    Text("Start VPN Client")
+                }
+            }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
