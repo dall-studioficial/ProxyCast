@@ -631,9 +631,9 @@ class MainActivity : ComponentActivity() {
      */
     private fun loadSavedCredentials() {
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        savedSsid = prefs.getString(PREF_SSID, "") ?: ""
-        savedPassphrase = prefs.getString(PREF_PASSPHRASE, "") ?: ""
-        Log.d(TAG, "Loaded saved credentials - SSID: '$savedSsid', Passphrase length: ${savedPassphrase.length}")
+        savedSsid = prefs.getString(PREF_SSID, "").orEmpty()
+        savedPassphrase = prefs.getString(PREF_PASSPHRASE, "").orEmpty()
+        Log.d(TAG, "Loaded saved credentials - SSID length: ${savedSsid.length}, Passphrase length: ${savedPassphrase.length}")
     }
 
     /**
@@ -648,7 +648,7 @@ class MainActivity : ComponentActivity() {
         }
         savedSsid = ssid
         savedPassphrase = passphrase
-        Log.d(TAG, "Saved credentials - SSID: '$ssid', Passphrase length: ${passphrase.length}")
+        Log.d(TAG, "Saved credentials - SSID length: ${ssid.length}, Passphrase length: ${passphrase.length}")
     }
 
     @SuppressLint("MissingPermission") // Permission checked in checkPermissions() before calling
