@@ -171,11 +171,12 @@ class VpnProxyService : VpnService() {
                 Log.d(TAG, "VPN foreground service started with notification")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to start foreground service", e)
-                // Clean up and rethrow
+                // Clean up and stop service
                 vpnInterface?.close()
                 vpnInterface = null
                 isRunning = false
-                throw e
+                stopSelf()
+                return
             }
             
             Log.d(TAG, "VPN interface established successfully, starting packet processing")
