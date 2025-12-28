@@ -104,17 +104,27 @@ The app requires the following permissions (requested at runtime):
 4. **Tap "Connect to First Peer"** to connect to the host device
    - The device will connect to the Wi-Fi Direct group
    - Connection status will be displayed in the UI
-5. **Once connected**, the status will show:
+5. **IMPORTANT: Wait for connection to complete** - the status will show:
    - Group SSID and passphrase
    - Group owner (host) IP address
    - IPv4 address (if available)
    - IPv6 address (if available)
    - Proxy configuration: `<host-ip>:8080`
+   - **You MUST be connected to the group owner before starting the VPN**
 6. **Tap "Start VPN Client"** to enable automatic traffic routing
-   - Grant VPN permission when prompted
+   - **First time only**: A system permission dialog will appear asking to grant VPN permission
+     - Tap "OK" to grant permission
+     - This permission is required only once - subsequent VPN starts won't show the dialog
+   - If you deny permission, you'll need to restart the VPN to see the dialog again
    - All device traffic will automatically route through the proxy
    - A persistent notification will show the VPN is active
 7. **To stop**, tap "Stop VPN Client" to disconnect the VPN tunnel
+
+**VPN Permission Dialog:**
+- 📱 The permission dialog appears **only the first time** you start the VPN
+- ✅ Once granted, the VPN will start directly on subsequent uses
+- ❌ If you deny permission, you must tap "Start VPN Client" again to retry
+- 🔐 This permission allows the app to route your device traffic through the proxy
 
 **Option 2: Manual Proxy Configuration**
 
@@ -130,6 +140,7 @@ The app requires the following permissions (requested at runtime):
 - ✅ No need to configure individual apps
 - ✅ Works with apps that don't support manual proxy settings
 - ✅ Similar to how pdaNet works
+- ✅ Permission dialog appears only once
 
 ## Compatibility Notes
 

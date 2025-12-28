@@ -157,16 +157,28 @@ class VpnProxyService : VpnService() {
             vpnInterface = builder.establish()
             
             if (vpnInterface == null) {
-                Log.e(TAG, "Failed to establish VPN interface")
+                Log.e(TAG, "Failed to establish VPN interface - builder.establish() returned null")
                 stopSelf()
                 return
             }
 
             isRunning = true
-            val notification = createNotification()
-            startForeground(NOTIFICATION_ID, notification)
             
-            Log.d(TAG, "VPN interface established successfully")
+            // Start foreground service with notification
+            try {
+                val notification = createNotification()
+                startForeground(NOTIFICATION_ID, notification)
+                Log.d(TAG, "VPN foreground service started with notification")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to start foreground service", e)
+                // Clean up and rethrow
+                vpnInterface?.close()
+                vpnInterface = null
+                isRunning = false
+                throw e
+            }
+            
+            Log.d(TAG, "VPN interface established successfully, starting packet processing")
             
             // Start packet processing
             serviceScope.launch {
@@ -174,7 +186,7 @@ class VpnProxyService : VpnService() {
             }
             
         } catch (e: Exception) {
-            Log.e(TAG, "Error starting VPN", e)
+            Log.e(TAG, "Error starting VPN service", e)
             stopVpn()
             stopSelf()
         }

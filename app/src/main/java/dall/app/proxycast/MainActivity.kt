@@ -14,6 +14,7 @@ import android.net.wifi.p2p.WifiP2pManager
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -82,10 +83,12 @@ class MainActivity : ComponentActivity() {
     ) { result ->
         if (result.resultCode == RESULT_OK) {
             Log.d(TAG, "VPN permission granted, starting VPN service")
+            Toast.makeText(this, "VPN permission granted. Starting VPN...", Toast.LENGTH_SHORT).show()
             startVpnProxyService()
         } else {
-            Log.e(TAG, "VPN permission denied")
+            Log.e(TAG, "VPN permission denied by user")
             statusText = "VPN permission denied. Cannot start VPN client."
+            Toast.makeText(this, "VPN permission denied. Cannot start VPN.", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -527,44 +530,67 @@ class MainActivity : ComponentActivity() {
     }
     
     private fun startVpnClient() {
+        Log.d(TAG, "startVpnClient() called")
+        
         if (proxyHostAddress.isEmpty()) {
-            statusText = "Cannot start VPN: Connect to a Wi-Fi Direct group as a client first to get the proxy server address."
+            val message = "Cannot start VPN: Connect to a Wi-Fi Direct group as a client first to get the proxy server address."
+            statusText = message
+            Toast.makeText(this, "Must connect to group owner first before starting VPN", Toast.LENGTH_LONG).show()
+            Log.w(TAG, "startVpnClient aborted: proxyHostAddress is empty")
             return
         }
+        
+        Log.d(TAG, "Starting VPN client with proxy: $proxyHostAddress:${ProxyServerService.PROXY_PORT}")
         
         // Check if VPN permission is needed
         val vpnIntent = android.net.VpnService.prepare(this)
         if (vpnIntent != null) {
             // Need to request VPN permission
-            Log.d(TAG, "Requesting VPN permission")
+            Log.d(TAG, "VPN permission required. Launching permission dialog...")
             statusText = "Requesting VPN permission..."
+            Toast.makeText(this, "VPN permission required. Please grant permission in the dialog.", Toast.LENGTH_LONG).show()
             vpnPermissionLauncher.launch(vpnIntent)
         } else {
-            // Permission already granted, start VPN
-            Log.d(TAG, "VPN permission already granted, starting VPN service")
+            // Permission already granted, start VPN directly
+            Log.d(TAG, "VPN permission already granted. Starting VPN service directly...")
+            Toast.makeText(this, "Starting VPN client...", Toast.LENGTH_SHORT).show()
             startVpnProxyService()
         }
     }
     
     private fun startVpnProxyService() {
-        val intent = Intent(this, VpnProxyService::class.java).apply {
-            action = VpnProxyService.ACTION_START_VPN
-            putExtra(VpnProxyService.EXTRA_PROXY_HOST, proxyHostAddress)
-            putExtra(VpnProxyService.EXTRA_PROXY_PORT, ProxyServerService.PROXY_PORT)
+        try {
+            val intent = Intent(this, VpnProxyService::class.java).apply {
+                action = VpnProxyService.ACTION_START_VPN
+                putExtra(VpnProxyService.EXTRA_PROXY_HOST, proxyHostAddress)
+                putExtra(VpnProxyService.EXTRA_PROXY_PORT, ProxyServerService.PROXY_PORT)
+            }
+            
+            Log.d(TAG, "Starting VPN foreground service with proxy: $proxyHostAddress:${ProxyServerService.PROXY_PORT}")
+            
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+            
+            isVpnActive = true
+            val successMessage = "VPN client started. All traffic routing through $proxyHostAddress:${ProxyServerService.PROXY_PORT}"
+            statusText = successMessage
+            Toast.makeText(this, "VPN active! Traffic routing through proxy.", Toast.LENGTH_LONG).show()
+            Log.d(TAG, "VPN proxy service started successfully")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start VPN foreground service", e)
+            isVpnActive = false
+            statusText = "Failed to start VPN service: ${e.message}"
+            Toast.makeText(this, "Failed to start VPN: ${e.message}", Toast.LENGTH_LONG).show()
         }
-        
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent)
-        } else {
-            startService(intent)
-        }
-        
-        isVpnActive = true
-        statusText = "VPN client started. All traffic routing through $proxyHostAddress:${ProxyServerService.PROXY_PORT}"
-        Log.d(TAG, "VPN proxy service started")
     }
     
     private fun stopVpnClient() {
+        Log.d(TAG, "stopVpnClient() called")
+        
         val intent = Intent(this, VpnProxyService::class.java).apply {
             action = VpnProxyService.ACTION_STOP_VPN
         }
@@ -572,7 +598,8 @@ class MainActivity : ComponentActivity() {
         
         isVpnActive = false
         statusText = "VPN client stopped"
-        Log.d(TAG, "VPN proxy service stopped")
+        Toast.makeText(this, "VPN client stopped", Toast.LENGTH_SHORT).show()
+        Log.d(TAG, "VPN client stop requested")
     }
 
     private fun checkPermissions(): Boolean {
