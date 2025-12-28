@@ -89,9 +89,15 @@ class ProxyServerService : Service() {
                 serverSocket = ServerSocket(PROXY_PORT)
                 Log.d(TAG, "Proxy server started on port $PROXY_PORT")
                 
-                while (isRunning && !serverSocket!!.isClosed) {
+                val socket = serverSocket
+                if (socket == null || socket.isClosed) {
+                    Log.e(TAG, "Server socket is null or closed")
+                    return@launch
+                }
+                
+                while (isRunning && !socket.isClosed) {
                     try {
-                        val clientSocket = serverSocket!!.accept()
+                        val clientSocket = socket.accept()
                         Log.d(TAG, "Client connected: ${clientSocket.inetAddress}")
                         
                         // Handle each client in a separate coroutine
@@ -157,17 +163,26 @@ class ProxyServerService : Service() {
                     
                     Log.d(TAG, "Tunnel established to $host:$port")
                     
-                    // Relay data bidirectionally
-                    val job1 = launch {
-                        relay(clientSocket.getInputStream(), targetSocket.getOutputStream())
+                    // Relay data bidirectionally with proper cancellation
+                    coroutineScope {
+                        val job1 = launch {
+                            relay(clientSocket.getInputStream(), targetSocket.getOutputStream())
+                        }
+                        val job2 = launch {
+                            relay(targetSocket.getInputStream(), clientSocket.getOutputStream())
+                        }
+                        
+                        // Wait for both directions to complete
+                        try {
+                            job1.join()
+                            job2.join()
+                        } catch (e: Exception) {
+                            // If one fails, cancel the other
+                            job1.cancel()
+                            job2.cancel()
+                            throw e
+                        }
                     }
-                    val job2 = launch {
-                        relay(targetSocket.getInputStream(), clientSocket.getOutputStream())
-                    }
-                    
-                    // Wait for both directions to complete
-                    job1.join()
-                    job2.join()
                     
                     targetSocket.close()
                 } catch (e: IOException) {
@@ -193,7 +208,15 @@ class ProxyServerService : Service() {
     private fun parseHostPort(hostPort: String): Pair<String, Int> {
         val parts = hostPort.split(":")
         val host = parts[0]
-        val port = if (parts.size > 1) parts[1].toIntOrNull() ?: 443 else 443
+        val port = if (parts.size > 1) {
+            parts[1].toIntOrNull().also { 
+                if (it == null) {
+                    Log.w(TAG, "Invalid port in host:port '$hostPort', defaulting to 443")
+                }
+            } ?: 443
+        } else {
+            443
+        }
         return Pair(host, port)
     }
 

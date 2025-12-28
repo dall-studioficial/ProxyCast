@@ -40,7 +40,7 @@
         
         <!-- Wi-Fi Direct Broadcast Receiver -->
         <receiver android:name=".WifiDirectReceiver"
-            android:exported="true">
+            android:exported="false">
             <intent-filter>
                 <action android:name="android.net.wifi.p2p.STATE_CHANGED" />
                 <action android:name="android.net.wifi.p2p.PEERS_CHANGED" />
