@@ -9,9 +9,11 @@ ProxyCast allows Android devices to create ad-hoc network connections using Wi-F
 ## Features
 
 - **Wi-Fi Direct Group Creation**: Host device creates a Wi-Fi Direct group with customizable SSID and passphrase (Android 10+)
+- **Band Selection (Android 10+)**: Choose between 2.4 GHz, 5 GHz, or auto band selection for Wi-Fi Direct group
+- **IP Address Display**: Shows both IPv4 and IPv6 addresses when available after connection
 - **HTTP CONNECT Proxy Server**: Runs on port 8080 to proxy client traffic
 - **Peer Discovery & Connection**: Client devices can discover and connect to available Wi-Fi Direct groups
-- **Group Credentials Display**: Shows actual SSID, passphrase, and IP address for easy client configuration
+- **Group Credentials Display**: Shows actual SSID, passphrase, and IP addresses for easy client configuration
 - **Foreground Service**: Proxy runs as a foreground service with persistent notification
 - **Runtime Permission Handling**: Manages all required Android permissions dynamically
 - **Modern Android Support**: Compatible with Android 8.0 (API 26) through Android 14+ (API 34+)
@@ -47,7 +49,7 @@ The app requires the following permissions (requested at runtime):
 
 1. **Launch the app** on the device that will act as the proxy server
 2. **Grant all requested permissions** when prompted (location, Wi-Fi, notifications)
-3. **Optional: Configure custom network credentials**
+3. **Optional: Configure custom network credentials and settings**
    - Enter a custom **Network Name suffix** in the text field (e.g., "MyNetwork")
      - The app automatically prefixes your input with `DIRECT-XY-`
      - For inputs of 3+ characters: XY = first 2 characters, remaining becomes suffix
@@ -55,13 +57,24 @@ The app requires the following permissions (requested at runtime):
      - For 1-2 character inputs: padded with 'x' to form 2-character identifier
        - Example: "A" becomes "DIRECT-Ax-", "AB" becomes "DIRECT-AB-"
    - Enter a custom **Password** in the password field
+   - Select **Band preference** (2.4 GHz, 5 GHz, or Auto)
+     - **Android 10+ only**: Band selection requires API 29+
+     - **Auto (default)**: Lets the system choose the best band
+     - **2.4 GHz**: Request 2.4 GHz band (better range, more congested)
+     - **5 GHz**: Request 5 GHz band (better speed, shorter range)
+     - **Note**: Not all devices support band selection; will fall back to auto if unsupported
+   - Select **IP Preference** (Auto, IPv4, or IPv6)
+     - **Display-only setting**: Shows your preference but cannot enforce it
+     - **Actual availability** depends on device hardware and Android network stack
+     - After connection, the app displays which IP versions are actually available
+     - Both IPv4 and IPv6 addresses will be shown if present
    - **Validation Requirements**:
      - **SSID**: Suffix is auto-prefixed with `DIRECT-xy-`, maximum 32 characters total (suffix trimmed if necessary)
      - **Passphrase**: Must be 8-63 characters (strict WPA2 requirement)
      - The app will display validation errors and prevent group creation if inputs are invalid
-   - **Note**: Custom SSID and passphrase require Android 10+ (API 29)
+   - **Note**: Custom SSID, passphrase, and band selection require Android 10+ (API 29)
    - Leave fields empty to use system-generated defaults
-   - **Fallback Behavior**: If the system rejects custom credentials (on Android 10+), the app automatically falls back to system-generated credentials and displays a notice
+   - **Fallback Behavior**: If the system rejects custom credentials or band selection (on Android 10+), the app automatically falls back to system-generated credentials/auto band and displays a notice
 4. **Tap "Create Group + Start Proxy (Host)"**
    - The device creates a Wi-Fi Direct group
    - The proxy server starts on port 8080
@@ -69,7 +82,9 @@ The app requires the following permissions (requested at runtime):
 5. **Note the displayed credentials**:
    - **SSID**: Network name for clients to connect to
    - **Passphrase**: Password for clients to join the network
-   - **IP Address**: Host IP for proxy configuration (shown after connection)
+   - **IP Address(es)**: Host IP for proxy configuration (shown after connection)
+     - **IPv4**: IPv4 address (if available)
+     - **IPv6**: IPv6 address (if available)
    - **Important**: The displayed credentials show the actual values used by the system, which may differ from your input if the platform overrides them or if fallback occurs
 6. **Share these credentials** with client devices
 
@@ -85,17 +100,19 @@ The app requires the following permissions (requested at runtime):
 5. **Once connected**, the status will show:
    - Group SSID and passphrase
    - Group owner (host) IP address
+   - IPv4 address (if available)
+   - IPv6 address (if available)
    - Proxy configuration: `<host-ip>:8080`
 6. **Configure apps to use the proxy**:
-   - Set proxy address to the displayed host IP
+   - Set proxy address to the displayed host IP (use IPv4 or IPv6 as supported by your app)
    - Set proxy port to `8080`
-   - Example: `192.168.49.1:8080`
+   - Example: `192.168.49.1:8080` (IPv4) or `[fe80::1]:8080` (IPv6)
 
 ## Compatibility Notes
 
-### Android 10+ (API 29): Custom SSID and Passphrase
+### Android 10+ (API 29): Custom SSID, Passphrase, and Band Selection
 
-Starting with Android 10, you can set a custom network name (SSID) and passphrase when creating a Wi-Fi Direct group:
+Starting with Android 10, you can set a custom network name (SSID), passphrase, and band preference when creating a Wi-Fi Direct group:
 - Enter a suffix in the SSID field; the app automatically prefixes it with `DIRECT-XY-`
   - For 3+ character inputs: XY = first 2 characters, remaining becomes suffix
     - Example: "MyNetwork" becomes "DIRECT-My-Network"
@@ -103,24 +120,44 @@ Starting with Android 10, you can set a custom network name (SSID) and passphras
     - Example: "A" becomes "DIRECT-Ax-", "AB" becomes "DIRECT-AB-"
 - Use `WifiP2pConfig.Builder().setNetworkName(ssid).build()` internally for custom SSID
 - Use `WifiP2pConfig.Builder().setPassphrase(password).build()` internally for custom passphrase
-- Both methods can be chained before calling `.build()` to create the config
+- Use `WifiP2pConfig.Builder().setGroupOperatingBand(band).build()` internally for band selection
+  - `GROUP_OWNER_BAND_2GHZ`: Request 2.4 GHz band
+  - `GROUP_OWNER_BAND_5GHZ`: Request 5 GHz band
+  - `GROUP_OWNER_BAND_AUTO`: Let system choose (default)
+- All methods can be chained before calling `.build()` to create the config
 - **Validation Requirements**:
   - **SSID**: Automatically normalized to `DIRECT-xy-<suffix>` format, maximum 32 characters total
   - **Passphrase**: Strict requirement of 8-63 characters (WPA2 standard)
   - The app validates inputs and prevents group creation with invalid entries
-- **Exception Handling**: The app wraps `setNetworkName`/`setPassphrase` calls in try/catch blocks
+- **Exception Handling**: The app wraps API calls in try/catch blocks
   - If `IllegalArgumentException` is thrown (e.g., invalid format), the app automatically falls back to `createGroup()` without custom config
+  - If `UnsupportedOperationException` is thrown (band selection not supported), the app falls back to auto band
   - A user-friendly notice is displayed when fallback occurs
-- **Platform Behavior**: Some device manufacturers may override these values based on system settings
-- The app displays the **actual credentials** after group creation using `requestGroupInfo()`, so you can verify the effective SSID and passphrase being used
+- **Platform Behavior**: Some device manufacturers may override these values based on system settings or hardware limitations
+- The app displays the **actual credentials and IP addresses** after group creation using `requestGroupInfo()` and network interface inspection
+
+### IP Version Detection and Display
+
+The app detects and displays available IP addresses after connection:
+- **IPv4 Detection**: Shows IPv4 address from group owner info and network interfaces
+- **IPv6 Detection**: Shows IPv6 address if available from group owner info and network interfaces
+- **Dual Stack**: Both IPv4 and IPv6 addresses are displayed when present
+- **No Enforcement**: The IP preference setting is display-only; the actual IP version(s) depend on:
+  - Device hardware capabilities
+  - Android network stack configuration
+  - Wi-Fi Direct implementation by device manufacturer
+  - Network interface configuration
+- **Best Effort**: Wi-Fi Direct typically provides IPv4 by default; IPv6 availability varies by device and Android version
 
 ### Android 8-9 (API 26-28): System-Generated Credentials
 
-On Android 8.0 to 9.0, custom SSID and passphrase are not supported:
+On Android 8.0 to 9.0, custom SSID, passphrase, and band selection are not supported:
 - The system automatically generates random credentials
+- Band selection defaults to auto (system-chosen)
 - The app still validates inputs but will fallback to `createGroup()` without custom config on older APIs
-- Credentials are displayed after group creation using `requestGroupInfo()`
+- Credentials and IP addresses are displayed after group creation using `requestGroupInfo()` and network interface inspection
 - Host must share these credentials with clients manually
+- IP version detection still works and displays available IPv4/IPv6 addresses
 
 ### Android 13+ (API 33): Additional Permissions
 
@@ -153,6 +190,16 @@ This is a **proof-of-concept** implementation with the following limitations:
 - **Basic error handling**: Minimal error recovery and user feedback
 - **Manual peer selection**: Connects to first discovered peer only
 - **No persistent configuration**: Settings are lost when app is closed
+- **Band selection limitations**:
+  - Requires Android 10+ (API 29)
+  - Not supported on all devices
+  - System may override based on hardware capabilities or interference
+  - Falls back to auto if unsupported
+- **IP preference limitations**:
+  - Display-only, no enforcement mechanism
+  - Actual IP version depends on device/stack capabilities
+  - IPv6 availability varies significantly by device and Android version
+  - Most Wi-Fi Direct implementations default to IPv4 only
 
 ### Testing
 - **Physical devices only**: Wi-Fi Direct does not work in Android emulators

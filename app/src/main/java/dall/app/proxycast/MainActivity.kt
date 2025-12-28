@@ -19,7 +19,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -30,6 +32,9 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import dall.app.proxycast.ui.theme.ProxyCastTheme
+import java.net.Inet4Address
+import java.net.Inet6Address
+import java.net.NetworkInterface
 
 class MainActivity : ComponentActivity() {
 
@@ -56,6 +61,8 @@ class MainActivity : ComponentActivity() {
     private var isGroupOwner by mutableStateOf(false)
     private var ssidError by mutableStateOf("")
     private var passphraseError by mutableStateOf("")
+    private var ipv4Address by mutableStateOf("")
+    private var ipv6Address by mutableStateOf("")
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -122,7 +129,9 @@ class MainActivity : ComponentActivity() {
                         isGroupOwner = isGroupOwner,
                         ssidError = ssidError,
                         passphraseError = passphraseError,
-                        onCreateGroup = { ssid, password -> createGroup(ssid, password) },
+                        ipv4Address = ipv4Address,
+                        ipv6Address = ipv6Address,
+                        onCreateGroup = { ssid, password, band, ipPref -> createGroup(ssid, password, band, ipPref) },
                         onStopGroup = { stopGroup() },
                         onDiscoverPeers = { discoverPeers() },
                         onConnectToPeer = { connectToFirstPeer() }
@@ -271,7 +280,7 @@ class MainActivity : ComponentActivity() {
     }
 
     @SuppressLint("MissingPermission")
-    private fun createGroup(ssid: String = "", password: String = "") {
+    private fun createGroup(ssid: String = "", password: String = "", band: String = "auto", ipPreference: String = "auto") {
         if (!checkPermissions()) {
             statusText = "Missing required permissions"
             return
@@ -294,11 +303,11 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        Log.d(TAG, "Creating Wi-Fi Direct group")
+        Log.d(TAG, "Creating Wi-Fi Direct group with band: $band, IP preference: $ipPreference")
         statusText = "Creating group..."
 
-        // Use WifiP2pConfig.Builder for API 29+ if SSID or password is provided
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && (normalizedSsid.isNotEmpty() || password.isNotEmpty())) {
+        // Use WifiP2pConfig.Builder for API 29+ if SSID, password, or band is provided
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && (normalizedSsid.isNotEmpty() || password.isNotEmpty() || band != "auto")) {
             try {
                 val configBuilder = WifiP2pConfig.Builder()
                 
@@ -310,6 +319,25 @@ class MainActivity : ComponentActivity() {
                 if (password.isNotEmpty()) {
                     configBuilder.setPassphrase(password)
                     Log.d(TAG, "Setting passphrase")
+                }
+                
+                // Set band if specified (API 29+)
+                if (band != "auto") {
+                    try {
+                        val bandValue = when (band) {
+                            "2.4" -> WifiP2pConfig.GROUP_OWNER_BAND_2GHZ
+                            "5" -> WifiP2pConfig.GROUP_OWNER_BAND_5GHZ
+                            else -> WifiP2pConfig.GROUP_OWNER_BAND_AUTO
+                        }
+                        configBuilder.setGroupOperatingBand(bandValue)
+                        Log.d(TAG, "Setting band to: $band GHz")
+                    } catch (e: UnsupportedOperationException) {
+                        Log.w(TAG, "Band selection not supported on this device: ${e.message}")
+                        statusText = "Band selection not supported. Creating with auto..."
+                    } catch (e: IllegalArgumentException) {
+                        Log.w(TAG, "Invalid band parameter: ${e.message}")
+                        statusText = "Invalid band selection. Creating with auto..."
+                    }
                 }
                 
                 val config = configBuilder.build()
@@ -348,9 +376,28 @@ class MainActivity : ComponentActivity() {
                         statusText = "Failed to create group (code: $reason)"
                     }
                 })
+            } catch (e: UnsupportedOperationException) {
+                // If band selection is not supported, fall back to default
+                Log.w(TAG, "Band selection not supported, falling back to default: ${e.message}")
+                statusText = "Band selection not supported. Creating with defaults..."
+                
+                wifiP2pManager.createGroup(channel, object : WifiP2pManager.ActionListener {
+                    override fun onSuccess() {
+                        Log.d(TAG, "Group created successfully with system defaults")
+                        statusText = "Group created with system defaults! Requesting group info..."
+                        ssidError = ""
+                        passphraseError = ""
+                        requestGroupInfo()
+                    }
+
+                    override fun onFailure(reason: Int) {
+                        Log.e(TAG, "Failed to create group with defaults: $reason")
+                        statusText = "Failed to create group (code: $reason)"
+                    }
+                })
             }
         } else {
-            // Fallback for API < 29 or when no SSID/password is provided
+            // Fallback for API < 29 or when no SSID/password/band is provided
             wifiP2pManager.createGroup(channel, object : WifiP2pManager.ActionListener {
                 override fun onSuccess() {
                     Log.d(TAG, "Group created successfully")
@@ -500,6 +547,9 @@ class MainActivity : ComponentActivity() {
     private fun updateGroupInfoInStatus(info: WifiP2pInfo) {
         isGroupOwner = info.isGroupOwner
         
+        // Detect IPv4 and IPv6 addresses
+        detectIpAddresses(info)
+        
         wifiP2pManager.requestGroupInfo(channel) { group ->
             val role = if (info.isGroupOwner) "Group Owner (Host)" else "Client"
             val address = info.groupOwnerAddress?.hostAddress ?: "unknown"
@@ -511,17 +561,102 @@ class MainActivity : ComponentActivity() {
                 groupSsid = ssid
                 groupPassphrase = passphrase
                 
-                statusText = "Connected as $role\nGroup owner IP: $address\nSSID: $ssid\nPassphrase: $passphrase"
+                statusText = buildConnectionStatusText(role, address, ssid, passphrase, info.isGroupOwner)
             } else {
-                statusText = "Connected as $role\nGroup owner IP: $address"
-            }
-            
-            if (info.isGroupOwner) {
-                statusText += "\nProxy running on port ${ProxyServerService.PROXY_PORT}"
-            } else {
-                statusText += "\nUse proxy: $address:${ProxyServerService.PROXY_PORT}"
+                statusText = buildConnectionStatusText(role, address, "", "", info.isGroupOwner)
             }
         }
+    }
+    
+    /**
+     * Detect IPv4 and IPv6 addresses from network interfaces and connection info
+     */
+    private fun detectIpAddresses(info: WifiP2pInfo) {
+        try {
+            // Clear previous addresses
+            ipv4Address = ""
+            ipv6Address = ""
+            
+            // Get the group owner address first
+            val goAddress = info.groupOwnerAddress
+            if (goAddress != null) {
+                when (goAddress) {
+                    is Inet4Address -> {
+                        ipv4Address = goAddress.hostAddress ?: ""
+                        Log.d(TAG, "Group owner IPv4: $ipv4Address")
+                    }
+                    is Inet6Address -> {
+                        ipv6Address = goAddress.hostAddress ?: ""
+                        Log.d(TAG, "Group owner IPv6: $ipv6Address")
+                    }
+                }
+            }
+            
+            // Try to find Wi-Fi Direct interface addresses
+            val interfaces = NetworkInterface.getNetworkInterfaces()
+            while (interfaces.hasMoreElements()) {
+                val networkInterface = interfaces.nextElement()
+                // Look for p2p interfaces (Wi-Fi Direct typically uses p2p-wlan or p2p-p2p interfaces)
+                if (networkInterface.name.contains("p2p", ignoreCase = true)) {
+                    val addresses = networkInterface.inetAddresses
+                    while (addresses.hasMoreElements()) {
+                        val address = addresses.nextElement()
+                        when (address) {
+                            is Inet4Address -> {
+                                if (!address.isLoopbackAddress && !address.isLinkLocalAddress) {
+                                    if (ipv4Address.isEmpty()) {
+                                        ipv4Address = address.hostAddress ?: ""
+                                        Log.d(TAG, "Detected IPv4 from p2p interface: $ipv4Address")
+                                    }
+                                }
+                            }
+                            is Inet6Address -> {
+                                if (!address.isLoopbackAddress && !address.isLinkLocalAddress) {
+                                    if (ipv6Address.isEmpty()) {
+                                        ipv6Address = address.hostAddress ?: ""
+                                        Log.d(TAG, "Detected IPv6 from p2p interface: $ipv6Address")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error detecting IP addresses", e)
+        }
+    }
+    
+    /**
+     * Build connection status text with IP address information
+     */
+    private fun buildConnectionStatusText(role: String, primaryAddress: String, ssid: String, passphrase: String, isGroupOwner: Boolean): String {
+        var text = "Connected as $role\nGroup owner IP: $primaryAddress"
+        
+        // Add IPv4/IPv6 information if available
+        if (ipv4Address.isNotEmpty()) {
+            text += "\nIPv4: $ipv4Address"
+        }
+        if (ipv6Address.isNotEmpty()) {
+            text += "\nIPv6: $ipv6Address"
+        }
+        
+        // Add SSID and passphrase if available
+        if (ssid.isNotEmpty() && ssid != "N/A") {
+            text += "\nSSID: $ssid"
+        }
+        if (passphrase.isNotEmpty() && passphrase != "N/A") {
+            text += "\nPassphrase: $passphrase"
+        }
+        
+        // Add proxy information
+        if (isGroupOwner) {
+            text += "\nProxy running on port ${ProxyServerService.PROXY_PORT}"
+        } else {
+            text += "\nUse proxy: $primaryAddress:${ProxyServerService.PROXY_PORT}"
+        }
+        
+        return text
     }
 
     // Callbacks from WifiDirectReceiver
@@ -556,6 +691,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WifiDirectProxyScreen(
     modifier: Modifier = Modifier,
@@ -565,7 +701,9 @@ fun WifiDirectProxyScreen(
     isGroupOwner: Boolean,
     ssidError: String,
     passphraseError: String,
-    onCreateGroup: (String, String) -> Unit,
+    ipv4Address: String,
+    ipv6Address: String,
+    onCreateGroup: (String, String, String, String) -> Unit,
     onStopGroup: () -> Unit,
     onDiscoverPeers: () -> Unit,
     onConnectToPeer: () -> Unit
@@ -573,13 +711,20 @@ fun WifiDirectProxyScreen(
     var ssidInput by remember { mutableStateOf("") }
     var passwordInput by remember { mutableStateOf("") }
     var showPassword by remember { mutableStateOf(false) }
+    var selectedBand by remember { mutableStateOf("auto") }
+    var selectedIpPreference by remember { mutableStateOf("auto") }
+    var expandedBand by remember { mutableStateOf(false) }
+    var expandedIpPref by remember { mutableStateOf(false) }
+    
+    val bandOptions = listOf("auto", "2.4", "5")
+    val ipPrefOptions = listOf("auto", "IPv4", "IPv6")
     
     Column(
         modifier = modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
             text = "Wi-Fi Direct Proxy",
@@ -641,6 +786,82 @@ fun WifiDirectProxyScreen(
                 .padding(vertical = 4.dp)
         )
 
+        // Band Selection Dropdown
+        ExposedDropdownMenuBox(
+            expanded = expandedBand,
+            onExpandedChange = { if (!isGroupOwner) expandedBand = !expandedBand }
+        ) {
+            OutlinedTextField(
+                value = when(selectedBand) {
+                    "2.4" -> "2.4 GHz"
+                    "5" -> "5 GHz"
+                    else -> "Auto"
+                },
+                onValueChange = {},
+                readOnly = true,
+                enabled = !isGroupOwner,
+                label = { Text("Band Selection") },
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedBand) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
+                    .menuAnchor(),
+                colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors()
+            )
+            ExposedDropdownMenu(
+                expanded = expandedBand,
+                onDismissRequest = { expandedBand = false }
+            ) {
+                bandOptions.forEach { option ->
+                    DropdownMenuItem(
+                        text = { Text(when(option) {
+                            "2.4" -> "2.4 GHz"
+                            "5" -> "5 GHz"
+                            else -> "Auto"
+                        }) },
+                        onClick = {
+                            selectedBand = option
+                            expandedBand = false
+                        }
+                    )
+                }
+            }
+        }
+
+        // IP Preference Dropdown
+        ExposedDropdownMenuBox(
+            expanded = expandedIpPref,
+            onExpandedChange = { if (!isGroupOwner) expandedIpPref = !expandedIpPref }
+        ) {
+            OutlinedTextField(
+                value = selectedIpPreference,
+                onValueChange = {},
+                readOnly = true,
+                enabled = !isGroupOwner,
+                label = { Text("IP Preference") },
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedIpPref) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
+                    .menuAnchor(),
+                colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors()
+            )
+            ExposedDropdownMenu(
+                expanded = expandedIpPref,
+                onDismissRequest = { expandedIpPref = false }
+            ) {
+                ipPrefOptions.forEach { option ->
+                    DropdownMenuItem(
+                        text = { Text(option) },
+                        onClick = {
+                            selectedIpPreference = option
+                            expandedIpPref = false
+                        }
+                    )
+                }
+            }
+        }
+
         Spacer(modifier = Modifier.height(8.dp))
 
         // Information card about custom credentials
@@ -655,13 +876,24 @@ fun WifiDirectProxyScreen(
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
                     Text(
-                        text = "Custom Credentials (Android 10+)",
+                        text = "Wi-Fi Direct Configuration (Android 10+)",
                         style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.onSecondaryContainer
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "• SSID: Enter suffix only - automatically prefixed with 'DIRECT-XY-'\n  - For 3+ char input: XY = first 2 chars, rest is suffix\n  - For 1-2 char input: padded to form identifier\n  - Example: 'MyNetwork' → 'DIRECT-My-Network'\n• Max 32 chars total (trimmed if needed)\n• Passphrase: Optional, 8-63 characters if provided\n• Leave empty to use system defaults\n• System may override; check displayed credentials after creation",
+                        text = "• SSID: Enter suffix only - automatically prefixed with 'DIRECT-XY-'\n" +
+                               "  - For 3+ char input: XY = first 2 chars, rest is suffix\n" +
+                               "  - Example: 'MyNetwork' → 'DIRECT-My-Network'\n" +
+                               "• Max 32 chars total (trimmed if needed)\n" +
+                               "• Passphrase: Optional, 8-63 characters if provided\n" +
+                               "• Band: Choose 2.4 GHz, 5 GHz, or auto (requires API 29+)\n" +
+                               "  - Not all devices support band selection\n" +
+                               "  - Falls back to auto if unsupported\n" +
+                               "• IP Preference: Display-only, shows negotiated addresses\n" +
+                               "  - No enforcement, depends on device/stack\n" +
+                               "• Leave empty to use system defaults\n" +
+                               "• System may override; check displayed info after creation",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSecondaryContainer
                     )
@@ -684,7 +916,7 @@ fun WifiDirectProxyScreen(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Android 8-9: Custom SSID and passphrase are not supported. The system will generate credentials automatically. Check the group info after creation.",
+                        text = "Android 8-9: Custom SSID, passphrase, and band selection are not supported. The system will generate credentials automatically. IP preference display is still available. Check the group info after creation.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onTertiaryContainer
                     )
@@ -709,7 +941,7 @@ fun WifiDirectProxyScreen(
             }
         } else {
             Button(
-                onClick = { onCreateGroup(ssidInput, passwordInput) },
+                onClick = { onCreateGroup(ssidInput, passwordInput, selectedBand, selectedIpPreference) },
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 8.dp)
@@ -759,6 +991,18 @@ fun WifiDirectProxyScreen(
                         text = "Passphrase: $groupPassphrase",
                         style = MaterialTheme.typography.bodyMedium
                     )
+                    if (ipv4Address.isNotEmpty()) {
+                        Text(
+                            text = "IPv4: $ipv4Address",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                    if (ipv6Address.isNotEmpty()) {
+                        Text(
+                            text = "IPv6: $ipv6Address",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
                 }
             }
         }
