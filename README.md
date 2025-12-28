@@ -50,6 +50,10 @@ The app requires the following permissions (requested at runtime):
 3. **Optional: Configure custom network credentials**
    - Enter a custom **Network Name (SSID)** in the text field
    - Enter a custom **Password** in the password field
+   - **Validation Requirements**:
+     - **SSID**: Maximum 32 characters, printable ASCII only. Recommended to start with "DIRECT-" for Wi-Fi Direct compatibility
+     - **Passphrase**: 8-63 printable ASCII characters (WPA2 requirement)
+     - The app will display validation errors if inputs don't meet these requirements
    - **Note**: Custom SSID and passphrase require Android 10+ (API 29)
    - Leave fields empty to use system-generated defaults
 4. **Tap "Create Group + Start Proxy (Host)"**
@@ -60,6 +64,7 @@ The app requires the following permissions (requested at runtime):
    - **SSID**: Network name for clients to connect to
    - **Passphrase**: Password for clients to join the network
    - **IP Address**: Host IP for proxy configuration (shown after connection)
+   - **Important**: The displayed credentials show the actual values used by the system, which may differ from your input if the platform overrides them
 6. **Share these credentials** with client devices
 
 ### Client Device
@@ -88,14 +93,19 @@ Starting with Android 10, you can set a custom network name (SSID) and passphras
 - Use `WifiP2pConfig.Builder().setNetworkName(ssid).build()` for custom SSID
 - Use `WifiP2pConfig.Builder().setPassphrase(password).build()` for custom passphrase
 - Both methods can be chained before calling `.build()` to create the config
-- Some device manufacturers may override these values based on system settings
-- The app displays the actual credentials after group creation for verification
+- **Validation Requirements**:
+  - **SSID**: Maximum 32 characters, printable ASCII only. Recommended to start with "DIRECT-"
+  - **Passphrase**: 8-63 printable ASCII characters (WPA2 standard)
+  - The app validates inputs and shows error messages for invalid entries
+- **Platform Behavior**: Some device manufacturers may override these values based on system settings
+- The app displays the **actual credentials** after group creation using `requestGroupInfo()`, so you can verify the effective SSID and passphrase being used
 
 ### Android 8-9 (API 26-28): System-Generated Credentials
 
 On Android 8.0 to 9.0, custom SSID and passphrase are not supported:
 - The system automatically generates random credentials
-- Credentials are displayed after group creation
+- The app still validates inputs but will fallback to `createGroup()` without custom config on older APIs
+- Credentials are displayed after group creation using `requestGroupInfo()`
 - Host must share these credentials with clients manually
 
 ### Android 13+ (API 33): Additional Permissions
