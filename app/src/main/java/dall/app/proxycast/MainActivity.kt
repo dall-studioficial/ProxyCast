@@ -35,6 +35,7 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         private const val TAG = "MainActivity"
+        private const val DEFAULT_SSID_IDENTIFIER = "xx"
     }
 
     private lateinit var wifiP2pManager: WifiP2pManager
@@ -189,21 +190,20 @@ class MainActivity : ComponentActivity() {
         
         // If already starts with DIRECT-, keep it (user may have specific format)
         if (trimmed.startsWith("DIRECT-", ignoreCase = true)) {
-            // Ensure it's uppercase DIRECT- and limit to 32 chars
+            // Preserve original case and limit to 32 chars
             if (trimmed.length > 7) {
-                val suffix = trimmed.substring(7)
-                return ("DIRECT-" + suffix).take(32)
+                return trimmed.take(32)
             } else {
-                // Input is exactly "DIRECT-" or shorter - add default suffix
-                return "DIRECT-xx-".take(32)
+                // Input is exactly "DIRECT-" or shorter - add default identifier
+                return "DIRECT-$DEFAULT_SSID_IDENTIFIER-".take(32)
             }
         }
         
         // Auto-add DIRECT-xy- prefix
-        // For short inputs (1-2 chars), use them as-is for uniqueId
-        // For longer inputs, use first 2 chars as uniqueId and remaining as suffix
+        // For short inputs (1-2 chars), use them as the XY identifier (padded if needed)
+        // For longer inputs, use first 2 chars as XY identifier, remaining as suffix
         if (trimmed.length <= 2) {
-            // Short input - use entire input as suffix with padding for uniqueId
+            // Short input - becomes the XY identifier (padded with 'x' if single char)
             val uniqueId = if (trimmed.length == 2) {
                 trimmed
             } else {
@@ -212,7 +212,7 @@ class MainActivity : ComponentActivity() {
             return "DIRECT-$uniqueId-"
         }
         
-        // Long input - use first 2 chars as uniqueId, rest as suffix
+        // Long input - use first 2 chars as XY identifier, rest as suffix
         val uniqueId = trimmed.substring(0, 2)
         val suffix = trimmed.substring(2)
         val withPrefix = "DIRECT-$uniqueId-$suffix"

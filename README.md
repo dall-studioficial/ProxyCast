@@ -51,8 +51,9 @@ The app requires the following permissions (requested at runtime):
    - Enter a custom **Network Name suffix** in the text field (e.g., "MyNetwork")
      - The app automatically prefixes your input with `DIRECT-XY-`
      - For inputs of 3+ characters: XY = first 2 characters, remaining becomes suffix
-     - Example: entering "MyNetwork" becomes "DIRECT-My-Network"
-     - For 1-2 character inputs: padded to form 2-character identifier
+       - Example: "MyNetwork" becomes "DIRECT-My-Network"
+     - For 1-2 character inputs: padded with 'x' to form 2-character identifier
+       - Example: "A" becomes "DIRECT-Ax-", "AB" becomes "DIRECT-AB-"
    - Enter a custom **Password** in the password field
    - **Validation Requirements**:
      - **SSID**: Suffix is auto-prefixed with `DIRECT-xy-`, maximum 32 characters total (suffix trimmed if necessary)
@@ -97,8 +98,9 @@ The app requires the following permissions (requested at runtime):
 Starting with Android 10, you can set a custom network name (SSID) and passphrase when creating a Wi-Fi Direct group:
 - Enter a suffix in the SSID field; the app automatically prefixes it with `DIRECT-XY-`
   - For 3+ character inputs: XY = first 2 characters, remaining becomes suffix
-  - Example: "MyNetwork" becomes "DIRECT-My-Network"
-  - For 1-2 character inputs: padded to form 2-character identifier
+    - Example: "MyNetwork" becomes "DIRECT-My-Network"
+  - For 1-2 character inputs: padded with 'x' to form 2-character identifier
+    - Example: "A" becomes "DIRECT-Ax-", "AB" becomes "DIRECT-AB-"
 - Use `WifiP2pConfig.Builder().setNetworkName(ssid).build()` internally for custom SSID
 - Use `WifiP2pConfig.Builder().setPassphrase(password).build()` internally for custom passphrase
 - Both methods can be chained before calling `.build()` to create the config
