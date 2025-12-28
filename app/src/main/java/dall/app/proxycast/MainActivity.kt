@@ -611,7 +611,7 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                             is Inet6Address -> {
-                                if (!address.isLoopbackAddress) {
+                                if (!address.isLoopbackAddress && !address.isLinkLocalAddress) {
                                     if (ipv6Address.isEmpty()) {
                                         ipv6Address = address.hostAddress ?: ""
                                         Log.d(TAG, "Detected IPv6 from p2p interface: $ipv6Address")
