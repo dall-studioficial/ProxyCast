@@ -53,6 +53,8 @@ class MainActivity : ComponentActivity() {
     private var groupSsid by mutableStateOf("")
     private var groupPassphrase by mutableStateOf("")
     private var isGroupOwner by mutableStateOf(false)
+    private var ssidError by mutableStateOf("")
+    private var passphraseError by mutableStateOf("")
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -117,6 +119,8 @@ class MainActivity : ComponentActivity() {
                         groupSsid = groupSsid,
                         groupPassphrase = groupPassphrase,
                         isGroupOwner = isGroupOwner,
+                        ssidError = ssidError,
+                        passphraseError = passphraseError,
                         onCreateGroup = { ssid, password -> createGroup(ssid, password) },
                         onStopGroup = { stopGroup() },
                         onDiscoverPeers = { discoverPeers() },
@@ -170,10 +174,79 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Validates SSID according to Wi-Fi Direct recommendations.
+     * SSID should ideally start with "DIRECT-" and be at most 32 characters long.
+     */
+    private fun validateSsid(ssid: String): String? {
+        if (ssid.isEmpty()) {
+            return null // Empty is allowed (will use default)
+        }
+        
+        if (ssid.length > 32) {
+            return "SSID must be at most 32 characters"
+        }
+        
+        // Check for valid characters (printable ASCII)
+        if (!ssid.all { it.code in 32..126 }) {
+            return "SSID must contain only printable ASCII characters"
+        }
+        
+        // Recommendation (not strict requirement)
+        if (!ssid.startsWith("DIRECT-")) {
+            return "Warning: SSID should start with 'DIRECT-' for compatibility"
+        }
+        
+        return null
+    }
+
+    /**
+     * Validates passphrase according to WPA2 requirements.
+     * Passphrase must be 8-63 printable ASCII characters.
+     */
+    private fun validatePassphrase(passphrase: String): String? {
+        if (passphrase.isEmpty()) {
+            return null // Empty is allowed (will use default)
+        }
+        
+        if (passphrase.length < 8) {
+            return "Passphrase must be at least 8 characters"
+        }
+        
+        if (passphrase.length > 63) {
+            return "Passphrase must be at most 63 characters"
+        }
+        
+        // Check for valid characters (printable ASCII)
+        if (!passphrase.all { it.code in 32..126 }) {
+            return "Passphrase must contain only printable ASCII characters"
+        }
+        
+        return null
+    }
+
     @SuppressLint("MissingPermission")
     private fun createGroup(ssid: String = "", password: String = "") {
         if (!checkPermissions()) {
             statusText = "Missing required permissions"
+            return
+        }
+
+        // Validate inputs
+        val ssidValidationError = validateSsid(ssid)
+        val passphraseValidationError = validatePassphrase(password)
+        
+        // Check for critical errors (not warnings)
+        val hasCriticalSsidError = ssidValidationError != null && !ssidValidationError.startsWith("Warning:")
+        val hasCriticalPassphraseError = passphraseValidationError != null
+        
+        // Set error messages
+        ssidError = ssidValidationError ?: ""
+        passphraseError = passphraseValidationError ?: ""
+        
+        // If there are critical errors, don't proceed
+        if (hasCriticalSsidError || hasCriticalPassphraseError) {
+            statusText = "Please fix validation errors before creating group"
             return
         }
 
@@ -200,6 +273,9 @@ class MainActivity : ComponentActivity() {
                 override fun onSuccess() {
                     Log.d(TAG, "Group created successfully with custom config")
                     statusText = "Group created! Requesting group info..."
+                    // Clear validation warnings after successful creation
+                    ssidError = ""
+                    passphraseError = ""
                     requestGroupInfo()
                 }
 
@@ -214,6 +290,8 @@ class MainActivity : ComponentActivity() {
                 override fun onSuccess() {
                     Log.d(TAG, "Group created successfully")
                     statusText = "Group created! Requesting group info..."
+                    ssidError = ""
+                    passphraseError = ""
                     requestGroupInfo()
                 }
 
@@ -420,6 +498,8 @@ fun WifiDirectProxyScreen(
     groupSsid: String,
     groupPassphrase: String,
     isGroupOwner: Boolean,
+    ssidError: String,
+    passphraseError: String,
     onCreateGroup: (String, String) -> Unit,
     onStopGroup: () -> Unit,
     onDiscoverPeers: () -> Unit,
@@ -450,6 +530,19 @@ fun WifiDirectProxyScreen(
             placeholder = { Text("Optional - Leave empty for default") },
             singleLine = true,
             enabled = !isGroupOwner,
+            isError = ssidError.isNotEmpty() && !ssidError.startsWith("Warning:"),
+            supportingText = if (ssidError.isNotEmpty()) {
+                {
+                    Text(
+                        text = ssidError,
+                        color = if (ssidError.startsWith("Warning:")) {
+                            MaterialTheme.colorScheme.tertiary
+                        } else {
+                            MaterialTheme.colorScheme.error
+                        }
+                    )
+                }
+            } else null,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(vertical = 4.dp)
@@ -463,6 +556,15 @@ fun WifiDirectProxyScreen(
             placeholder = { Text("Optional - Leave empty for default") },
             singleLine = true,
             enabled = !isGroupOwner,
+            isError = passphraseError.isNotEmpty(),
+            supportingText = if (passphraseError.isNotEmpty()) {
+                {
+                    Text(
+                        text = passphraseError,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            } else null,
             visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
             trailingIcon = {
@@ -477,6 +579,57 @@ fun WifiDirectProxyScreen(
                 .fillMaxWidth()
                 .padding(vertical = 4.dp)
         )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Information card about custom credentials
+        if (!isGroupOwner && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer
+                )
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text(
+                        text = "Custom Credentials (Android 10+)",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "• SSID: Recommended to start with 'DIRECT-', max 32 chars\n• Passphrase: 8-63 printable ASCII characters\n• Leave empty to use system defaults\n• Note: Some devices may override custom values",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                }
+            }
+        } else if (!isGroupOwner && Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                )
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text(
+                        text = "System-Generated Credentials",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Android 8-9: Custom SSID and passphrase are not supported. The system will generate credentials automatically. Check the group info after creation.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                    )
+                }
+            }
+        }
 
         Spacer(modifier = Modifier.height(8.dp))
 
