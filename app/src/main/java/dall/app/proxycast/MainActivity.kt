@@ -661,7 +661,7 @@ fun WifiDirectProxyScreen(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "• SSID: Enter suffix only - automatically prefixed with 'DIRECT-XY-'\n  - For 3+ char input: XY = first 2 chars, remaining is suffix\n  - Example: 'MyNetwork' → 'DIRECT-My-Network'\n• Max 32 chars total (trimmed if needed)\n• Passphrase: Optional, 8-63 characters if provided\n• Leave empty to use system defaults\n• System may override; check displayed credentials after creation",
+                        text = "• SSID: Enter suffix only - automatically prefixed with 'DIRECT-XY-'\n  - For 3+ char input: XY = first 2 chars, rest is suffix\n  - For 1-2 char input: padded to form identifier\n  - Example: 'MyNetwork' → 'DIRECT-My-Network'\n• Max 32 chars total (trimmed if needed)\n• Passphrase: Optional, 8-63 characters if provided\n• Leave empty to use system defaults\n• System may override; check displayed credentials after creation",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSecondaryContainer
                     )

@@ -52,7 +52,7 @@ The app requires the following permissions (requested at runtime):
      - The app automatically prefixes your input with `DIRECT-XY-`
      - For inputs of 3+ characters: XY = first 2 characters, remaining becomes suffix
      - Example: entering "MyNetwork" becomes "DIRECT-My-Network"
-     - For 1-2 character inputs: entire input is used as identifier
+     - For 1-2 character inputs: padded to form 2-character identifier
    - Enter a custom **Password** in the password field
    - **Validation Requirements**:
      - **SSID**: Suffix is auto-prefixed with `DIRECT-xy-`, maximum 32 characters total (suffix trimmed if necessary)
@@ -98,7 +98,7 @@ Starting with Android 10, you can set a custom network name (SSID) and passphras
 - Enter a suffix in the SSID field; the app automatically prefixes it with `DIRECT-XY-`
   - For 3+ character inputs: XY = first 2 characters, remaining becomes suffix
   - Example: "MyNetwork" becomes "DIRECT-My-Network"
-  - For 1-2 character inputs: entire input is used as identifier
+  - For 1-2 character inputs: padded to form 2-character identifier
 - Use `WifiP2pConfig.Builder().setNetworkName(ssid).build()` internally for custom SSID
 - Use `WifiP2pConfig.Builder().setPassphrase(password).build()` internally for custom passphrase
 - Both methods can be chained before calling `.build()` to create the config
