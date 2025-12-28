@@ -6,15 +6,19 @@ A proof-of-concept Android application demonstrating Wi-Fi Direct group creation
 
 ProxyCast allows Android devices to create ad-hoc network connections using Wi-Fi Direct (Wi-Fi P2P) and route traffic through an HTTP CONNECT proxy server. One device acts as the **host** (group owner), creating a Wi-Fi Direct group and running a proxy server on port 8080. Other devices act as **clients**, discovering and connecting to the host to route their network traffic through the proxy.
 
+The app now includes **VPN-based client mode** (similar to pdaNet), which automatically routes all device traffic through the proxy using Android's VPN Service API, eliminating the need to manually configure proxy settings in individual apps.
+
 ## Features
 
 - **Wi-Fi Direct Group Creation**: Host device creates a Wi-Fi Direct group with customizable SSID and passphrase (Android 10+)
 - **Band Selection (Android 10+)**: Choose between 2.4 GHz, 5 GHz, or auto band selection for Wi-Fi Direct group
 - **IP Address Display**: Shows both IPv4 and IPv6 addresses when available after connection
 - **HTTP CONNECT Proxy Server**: Runs on port 8080 to proxy client traffic
+- **VPN Client Mode**: Automatically routes all device traffic through the proxy using Android VPN Service (similar to pdaNet)
+- **Manual Proxy Mode**: Traditional proxy configuration for individual apps
 - **Peer Discovery & Connection**: Client devices can discover and connect to available Wi-Fi Direct groups
 - **Group Credentials Display**: Shows actual SSID, passphrase, and IP addresses for easy client configuration
-- **Foreground Service**: Proxy runs as a foreground service with persistent notification
+- **Foreground Service**: Proxy and VPN services run as foreground services with persistent notifications
 - **Runtime Permission Handling**: Manages all required Android permissions dynamically
 - **Modern Android Support**: Compatible with Android 8.0 (API 26) through Android 14+ (API 34+)
 
@@ -42,6 +46,7 @@ The app requires the following permissions (requested at runtime):
 | `FOREGROUND_SERVICE_DATA_SYNC` | Foreground service type | API 34+ |
 | `FOREGROUND_SERVICE_CONNECTED_DEVICE` | Foreground service type | API 34+ |
 | `POST_NOTIFICATIONS` | Display service notification | API 33+ |
+| `BIND_VPN_SERVICE` | VPN client functionality | All versions |
 
 ## Usage
 
@@ -90,6 +95,8 @@ The app requires the following permissions (requested at runtime):
 
 ### Client Device
 
+**Option 1: VPN Client Mode (Automatic - Recommended)**
+
 1. **Launch the app** on a device that will connect as a client
 2. **Grant all requested permissions** when prompted
 3. **Tap "Discover Peers (Client)"** to scan for available Wi-Fi Direct groups
@@ -103,10 +110,26 @@ The app requires the following permissions (requested at runtime):
    - IPv4 address (if available)
    - IPv6 address (if available)
    - Proxy configuration: `<host-ip>:8080`
-6. **Configure apps to use the proxy**:
+6. **Tap "Start VPN Client"** to enable automatic traffic routing
+   - Grant VPN permission when prompted
+   - All device traffic will automatically route through the proxy
+   - A persistent notification will show the VPN is active
+7. **To stop**, tap "Stop VPN Client" to disconnect the VPN tunnel
+
+**Option 2: Manual Proxy Configuration**
+
+1. Follow steps 1-5 from Option 1
+2. **Configure apps to use the proxy manually**:
    - Set proxy address to the displayed host IP (use IPv4 or IPv6 as supported by your app)
    - Set proxy port to `8080`
    - Example: `192.168.49.1:8080` (IPv4) or `[fe80::1]:8080` (IPv6)
+   - Note: Only apps that support HTTP proxy will work with this method
+
+**VPN Client Mode Benefits:**
+- ✅ Automatically routes ALL device traffic through the proxy
+- ✅ No need to configure individual apps
+- ✅ Works with apps that don't support manual proxy settings
+- ✅ Similar to how pdaNet works
 
 ## Compatibility Notes
 
@@ -171,7 +194,8 @@ Android 13 and later require additional permissions:
 |------|-------------|
 | `MainActivity.kt` | Main UI and Wi-Fi Direct management logic |
 | `WifiDirectReceiver.kt` | Broadcast receiver for Wi-Fi P2P events |
-| `ProxyServerService.kt` | Foreground service implementing HTTP CONNECT proxy |
+| `ProxyServerService.kt` | Foreground service implementing HTTP CONNECT proxy (host mode) |
+| `VpnProxyService.kt` | VPN service for automatic traffic routing (client mode) |
 | `AndroidManifest.xml` | Declares permissions and service configuration |
 
 ## Limitations
