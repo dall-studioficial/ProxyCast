@@ -85,8 +85,9 @@ The app requires the following permissions (requested at runtime):
 ### Android 10+ (API 29): Custom SSID and Passphrase
 
 Starting with Android 10, you can set a custom network name (SSID) and passphrase when creating a Wi-Fi Direct group:
-- Use `WifiP2pConfig.Builder().setNetworkName(ssid)` for custom SSID
-- Use `WifiP2pConfig.Builder().setPassphrase(password)` for custom passphrase
+- Use `WifiP2pConfig.Builder().setNetworkName(ssid).build()` for custom SSID
+- Use `WifiP2pConfig.Builder().setPassphrase(password).build()` for custom passphrase
+- Both methods can be chained before calling `.build()` to create the config
 - Some device manufacturers may override these values based on system settings
 - The app displays the actual credentials after group creation for verification
 
@@ -131,7 +132,7 @@ This is a **proof-of-concept** implementation with the following limitations:
 
 ### Testing
 - **Physical devices only**: Wi-Fi Direct does not work in Android emulators
-- **Same Wi-Fi Direct support**: Both devices must support Wi-Fi Direct
+- **Wi-Fi Direct support**: Both devices must support Wi-Fi Direct
 - **Proximity required**: Devices must be within Wi-Fi Direct range (typically ~50-100m)
 
 ## Next Steps
