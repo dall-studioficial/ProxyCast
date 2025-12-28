@@ -35,6 +35,7 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         private const val TAG = "MainActivity"
+        private const val DEFAULT_SSID_IDENTIFIER = "xx"
     }
 
     private lateinit var wifiP2pManager: WifiP2pManager
@@ -175,8 +176,52 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Validates SSID according to Wi-Fi Direct recommendations.
-     * SSID should ideally start with "DIRECT-" and be at most 32 characters long.
+     * Normalizes SSID input to Wi-Fi Direct required format.
+     * Automatically adds DIRECT-xy- prefix if not present, trims whitespace, and limits to 32 chars.
+     * @param input User-provided SSID input
+     * @return Normalized SSID with DIRECT-xy- prefix, or empty string if input is empty
+     */
+    private fun normalizeSsid(input: String): String {
+        if (input.isEmpty()) {
+            return "" // Empty means use system default
+        }
+        
+        val trimmed = input.trim()
+        
+        // If already starts with DIRECT-, keep it (user may have specific format)
+        if (trimmed.startsWith("DIRECT-", ignoreCase = true)) {
+            // Preserve original case and limit to 32 chars
+            if (trimmed.length > 7) {  // Has content after "DIRECT-" (which is 7 chars)
+                return trimmed.take(32)
+            } else {
+                // Input is exactly "DIRECT-" or shorter - add default identifier
+                return "DIRECT-$DEFAULT_SSID_IDENTIFIER-".take(32)
+            }
+        }
+        
+        // Auto-add DIRECT-xy- prefix
+        // For short inputs (1-2 chars), use them as the XY identifier (padded if needed)
+        // For longer inputs, use first 2 chars as XY identifier, remaining as suffix
+        if (trimmed.length <= 2) {
+            // Short input - becomes the XY identifier (padded with 'x' if single char)
+            val uniqueId = if (trimmed.length == 2) {
+                trimmed
+            } else {
+                trimmed + "x"
+            }
+            return "DIRECT-$uniqueId-"
+        }
+        
+        // Long input - use first 2 chars as XY identifier, rest as suffix
+        val uniqueId = trimmed.substring(0, 2)
+        val suffix = trimmed.substring(2)
+        val withPrefix = "DIRECT-$uniqueId-$suffix"
+        return withPrefix.take(32)
+    }
+    
+    /**
+     * Validates SSID according to Wi-Fi Direct requirements.
+     * SSID must start with "DIRECT-" and be at most 32 characters long.
      */
     private fun validateSsid(ssid: String): String? {
         if (ssid.isEmpty()) {
@@ -192,9 +237,9 @@ class MainActivity : ComponentActivity() {
             return "SSID must contain only printable ASCII characters"
         }
         
-        // Recommendation (not strict requirement)
+        // Strict requirement - must start with DIRECT-
         if (!ssid.startsWith("DIRECT-")) {
-            return "Warning: SSID should start with 'DIRECT-' for compatibility"
+            return "SSID must start with 'DIRECT-' (auto-normalized)"
         }
         
         return null
@@ -232,20 +277,19 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        // Validate inputs
-        val ssidValidationError = validateSsid(ssid)
-        val passphraseValidationError = validatePassphrase(password)
+        // Normalize SSID input (auto-prefix with DIRECT-xy- if needed)
+        val normalizedSsid = normalizeSsid(ssid)
         
-        // Check for critical errors (not warnings)
-        val hasCriticalSsidError = ssidValidationError != null && !ssidValidationError.startsWith("Warning:")
-        val hasCriticalPassphraseError = passphraseValidationError != null
+        // Validate normalized inputs
+        val ssidValidationError = validateSsid(normalizedSsid)
+        val passphraseValidationError = validatePassphrase(password)
         
         // Set error messages
         ssidError = ssidValidationError ?: ""
         passphraseError = passphraseValidationError ?: ""
         
-        // If there are critical errors, don't proceed
-        if (hasCriticalSsidError || hasCriticalPassphraseError) {
+        // If there are any validation errors, don't proceed
+        if (ssidValidationError != null || passphraseValidationError != null) {
             statusText = "Please fix validation errors before creating group"
             return
         }
@@ -254,36 +298,57 @@ class MainActivity : ComponentActivity() {
         statusText = "Creating group..."
 
         // Use WifiP2pConfig.Builder for API 29+ if SSID or password is provided
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && (ssid.isNotEmpty() || password.isNotEmpty())) {
-            val configBuilder = WifiP2pConfig.Builder()
-            
-            if (ssid.isNotEmpty()) {
-                configBuilder.setNetworkName(ssid)
-                Log.d(TAG, "Setting network name: $ssid")
-            }
-            
-            if (password.isNotEmpty()) {
-                configBuilder.setPassphrase(password)
-                Log.d(TAG, "Setting passphrase")
-            }
-            
-            val config = configBuilder.build()
-            
-            wifiP2pManager.createGroup(channel, config, object : WifiP2pManager.ActionListener {
-                override fun onSuccess() {
-                    Log.d(TAG, "Group created successfully with custom config")
-                    statusText = "Group created! Requesting group info..."
-                    // Clear validation warnings after successful creation
-                    ssidError = ""
-                    passphraseError = ""
-                    requestGroupInfo()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && (normalizedSsid.isNotEmpty() || password.isNotEmpty())) {
+            try {
+                val configBuilder = WifiP2pConfig.Builder()
+                
+                if (normalizedSsid.isNotEmpty()) {
+                    configBuilder.setNetworkName(normalizedSsid)
+                    Log.d(TAG, "Setting network name: $normalizedSsid")
                 }
+                
+                if (password.isNotEmpty()) {
+                    configBuilder.setPassphrase(password)
+                    Log.d(TAG, "Setting passphrase")
+                }
+                
+                val config = configBuilder.build()
+                
+                wifiP2pManager.createGroup(channel, config, object : WifiP2pManager.ActionListener {
+                    override fun onSuccess() {
+                        Log.d(TAG, "Group created successfully with custom config")
+                        statusText = "Group created! Requesting group info..."
+                        // Clear validation errors after successful creation
+                        ssidError = ""
+                        passphraseError = ""
+                        requestGroupInfo()
+                    }
 
-                override fun onFailure(reason: Int) {
-                    Log.e(TAG, "Failed to create group: $reason")
-                    statusText = "Failed to create group (code: $reason)"
-                }
-            })
+                    override fun onFailure(reason: Int) {
+                        Log.e(TAG, "Failed to create group: $reason")
+                        statusText = "Failed to create group (code: $reason)"
+                    }
+                })
+            } catch (e: IllegalArgumentException) {
+                // If custom config fails due to invalid parameters, fall back to default
+                Log.w(TAG, "Custom config rejected by system, falling back to default: ${e.message}")
+                statusText = "Custom credentials rejected by system. Creating with defaults..."
+                
+                wifiP2pManager.createGroup(channel, object : WifiP2pManager.ActionListener {
+                    override fun onSuccess() {
+                        Log.d(TAG, "Group created successfully with system defaults")
+                        statusText = "Group created with system defaults! Requesting group info..."
+                        ssidError = ""
+                        passphraseError = ""
+                        requestGroupInfo()
+                    }
+
+                    override fun onFailure(reason: Int) {
+                        Log.e(TAG, "Failed to create group with defaults: $reason")
+                        statusText = "Failed to create group (code: $reason)"
+                    }
+                })
+            }
         } else {
             // Fallback for API < 29 or when no SSID/password is provided
             wifiP2pManager.createGroup(channel, object : WifiP2pManager.ActionListener {
@@ -526,20 +591,16 @@ fun WifiDirectProxyScreen(
         OutlinedTextField(
             value = ssidInput,
             onValueChange = { ssidInput = it },
-            label = { Text("Network Name (SSID)") },
-            placeholder = { Text("Optional - Leave empty for default") },
+            label = { Text("Network Name (suffix only)") },
+            placeholder = { Text("Optional - auto-prefixed with DIRECT-xy-") },
             singleLine = true,
             enabled = !isGroupOwner,
-            isError = ssidError.isNotEmpty() && !ssidError.startsWith("Warning:"),
+            isError = ssidError.isNotEmpty(),
             supportingText = if (ssidError.isNotEmpty()) {
                 {
                     Text(
                         text = ssidError,
-                        color = if (ssidError.startsWith("Warning:")) {
-                            MaterialTheme.colorScheme.tertiary
-                        } else {
-                            MaterialTheme.colorScheme.error
-                        }
+                        color = MaterialTheme.colorScheme.error
                     )
                 }
             } else null,
@@ -600,7 +661,7 @@ fun WifiDirectProxyScreen(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "• SSID: Recommended to start with 'DIRECT-', max 32 chars\n• Passphrase: 8-63 printable ASCII characters\n• Leave empty to use system defaults\n• Note: Some devices may override custom values",
+                        text = "• SSID: Enter suffix only - automatically prefixed with 'DIRECT-XY-'\n  - For 3+ char input: XY = first 2 chars, rest is suffix\n  - For 1-2 char input: padded to form identifier\n  - Example: 'MyNetwork' → 'DIRECT-My-Network'\n• Max 32 chars total (trimmed if needed)\n• Passphrase: Optional, 8-63 characters if provided\n• Leave empty to use system defaults\n• System may override; check displayed credentials after creation",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSecondaryContainer
                     )

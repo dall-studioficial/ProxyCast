@@ -48,14 +48,20 @@ The app requires the following permissions (requested at runtime):
 1. **Launch the app** on the device that will act as the proxy server
 2. **Grant all requested permissions** when prompted (location, Wi-Fi, notifications)
 3. **Optional: Configure custom network credentials**
-   - Enter a custom **Network Name (SSID)** in the text field
+   - Enter a custom **Network Name suffix** in the text field (e.g., "MyNetwork")
+     - The app automatically prefixes your input with `DIRECT-XY-`
+     - For inputs of 3+ characters: XY = first 2 characters, remaining becomes suffix
+       - Example: "MyNetwork" becomes "DIRECT-My-Network"
+     - For 1-2 character inputs: padded with 'x' to form 2-character identifier
+       - Example: "A" becomes "DIRECT-Ax-", "AB" becomes "DIRECT-AB-"
    - Enter a custom **Password** in the password field
    - **Validation Requirements**:
-     - **SSID**: Maximum 32 characters, printable ASCII only. Recommended to start with "DIRECT-" for Wi-Fi Direct compatibility
-     - **Passphrase**: 8-63 printable ASCII characters (WPA2 requirement)
-     - The app will display validation errors if inputs don't meet these requirements
+     - **SSID**: Suffix is auto-prefixed with `DIRECT-xy-`, maximum 32 characters total (suffix trimmed if necessary)
+     - **Passphrase**: Must be 8-63 characters (strict WPA2 requirement)
+     - The app will display validation errors and prevent group creation if inputs are invalid
    - **Note**: Custom SSID and passphrase require Android 10+ (API 29)
    - Leave fields empty to use system-generated defaults
+   - **Fallback Behavior**: If the system rejects custom credentials (on Android 10+), the app automatically falls back to system-generated credentials and displays a notice
 4. **Tap "Create Group + Start Proxy (Host)"**
    - The device creates a Wi-Fi Direct group
    - The proxy server starts on port 8080
@@ -64,7 +70,7 @@ The app requires the following permissions (requested at runtime):
    - **SSID**: Network name for clients to connect to
    - **Passphrase**: Password for clients to join the network
    - **IP Address**: Host IP for proxy configuration (shown after connection)
-   - **Important**: The displayed credentials show the actual values used by the system, which may differ from your input if the platform overrides them
+   - **Important**: The displayed credentials show the actual values used by the system, which may differ from your input if the platform overrides them or if fallback occurs
 6. **Share these credentials** with client devices
 
 ### Client Device
@@ -90,13 +96,21 @@ The app requires the following permissions (requested at runtime):
 ### Android 10+ (API 29): Custom SSID and Passphrase
 
 Starting with Android 10, you can set a custom network name (SSID) and passphrase when creating a Wi-Fi Direct group:
-- Use `WifiP2pConfig.Builder().setNetworkName(ssid).build()` for custom SSID
-- Use `WifiP2pConfig.Builder().setPassphrase(password).build()` for custom passphrase
+- Enter a suffix in the SSID field; the app automatically prefixes it with `DIRECT-XY-`
+  - For 3+ character inputs: XY = first 2 characters, remaining becomes suffix
+    - Example: "MyNetwork" becomes "DIRECT-My-Network"
+  - For 1-2 character inputs: padded with 'x' to form 2-character identifier
+    - Example: "A" becomes "DIRECT-Ax-", "AB" becomes "DIRECT-AB-"
+- Use `WifiP2pConfig.Builder().setNetworkName(ssid).build()` internally for custom SSID
+- Use `WifiP2pConfig.Builder().setPassphrase(password).build()` internally for custom passphrase
 - Both methods can be chained before calling `.build()` to create the config
 - **Validation Requirements**:
-  - **SSID**: Maximum 32 characters, printable ASCII only. Recommended to start with "DIRECT-"
-  - **Passphrase**: 8-63 printable ASCII characters (WPA2 standard)
-  - The app validates inputs and shows error messages for invalid entries
+  - **SSID**: Automatically normalized to `DIRECT-xy-<suffix>` format, maximum 32 characters total
+  - **Passphrase**: Strict requirement of 8-63 characters (WPA2 standard)
+  - The app validates inputs and prevents group creation with invalid entries
+- **Exception Handling**: The app wraps `setNetworkName`/`setPassphrase` calls in try/catch blocks
+  - If `IllegalArgumentException` is thrown (e.g., invalid format), the app automatically falls back to `createGroup()` without custom config
+  - A user-friendly notice is displayed when fallback occurs
 - **Platform Behavior**: Some device manufacturers may override these values based on system settings
 - The app displays the **actual credentials** after group creation using `requestGroupInfo()`, so you can verify the effective SSID and passphrase being used
 
