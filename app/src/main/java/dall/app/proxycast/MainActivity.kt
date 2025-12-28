@@ -190,16 +190,23 @@ class MainActivity : ComponentActivity() {
         // If already starts with DIRECT-, keep it (user may have specific format)
         if (trimmed.startsWith("DIRECT-", ignoreCase = true)) {
             // Ensure it's uppercase DIRECT- and limit to 32 chars
-            val normalized = "DIRECT-" + trimmed.substring(7)
-            return normalized.take(32)
+            if (trimmed.length > 7) {
+                val normalized = "DIRECT-" + trimmed.substring(7)
+                return normalized.take(32)
+            } else {
+                // Input is exactly "DIRECT-" or shorter - add default suffix
+                return "DIRECT-xx-".take(32)
+            }
         }
         
-        // Auto-add DIRECT-xy- prefix (xy = random 2 chars for uniqueness)
+        // Auto-add DIRECT-xy- prefix (xy = first 2 chars of input for identification)
         // Use first 2 chars of input as unique identifier if available
         val uniqueId = if (trimmed.length >= 2) {
             trimmed.substring(0, 2)
+        } else if (trimmed.length == 1) {
+            "${trimmed[0]}x"
         } else {
-            trimmed.padEnd(2, 'x')
+            "xx"
         }
         
         val withPrefix = "DIRECT-$uniqueId-$trimmed"
@@ -648,7 +655,7 @@ fun WifiDirectProxyScreen(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "• SSID: Enter suffix only - automatically prefixed with 'DIRECT-xy-'\n• Max 32 chars total (suffix trimmed if needed)\n• Passphrase: Required 8-63 characters\n• Leave empty to use system defaults\n• System may override custom values; check displayed credentials after creation",
+                        text = "• SSID: Enter suffix only - automatically prefixed with 'DIRECT-XY-' (XY = first 2 chars of your input)\n• Max 32 chars total (suffix trimmed if needed)\n• Passphrase: Required 8-63 characters\n• Leave empty to use system defaults\n• System may override custom values; check displayed credentials after creation",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSecondaryContainer
                     )
