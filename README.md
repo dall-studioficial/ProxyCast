@@ -16,6 +16,7 @@ The app features **VPN-based client mode with automatic host detection** (simila
 - **Dual Proxy Servers**: 
   - **HTTP CONNECT Proxy**: Runs on port 8080 for HTTP CONNECT requests
   - **SOCKS5 Proxy**: Runs on port 1080 for SOCKS5 connections (used by VPN client)
+- **tun2socks Integration (POC)**: Pure Kotlin tun2socks forwarder for TCP traffic (response packet reconstruction not implemented)
 - **Automatic Host Detection**: Client automatically detects host IP via Wi-Fi Direct gateway (similar to PdaNet)
 - **VPN Client Mode**: Automatically routes all device traffic through the SOCKS5 proxy using Android VPN Service
   - VPN configured with 10.0.0.2/32 address, 0.0.0.0/0 route, dual DNS (1.1.1.1, 8.8.8.8), MTU 1500
@@ -218,7 +219,9 @@ Android 13 and later require additional permissions:
 | `MainActivity.kt` | Main UI and Wi-Fi Direct management logic |
 | `WifiDirectReceiver.kt` | Broadcast receiver for Wi-Fi P2P events |
 | `ProxyServerService.kt` | Foreground service implementing HTTP CONNECT (port 8080) and SOCKS5 (port 1080) proxy servers (host mode) |
-| `VpnProxyService.kt` | VPN service for automatic traffic routing (client mode) - POC implementation, requires tun2socks for production |
+| `Socks5Server.kt` | Lightweight SOCKS5 proxy implementation (helper/alternative) |
+| `Tun2Socks.kt` | Pure Kotlin tun2socks implementation for forwarding TUN traffic through SOCKS5 (POC) |
+| `VpnProxyService.kt` | VPN service for automatic traffic routing with tun2socks (client mode) - response packet reconstruction not implemented |
 | `AndroidManifest.xml` | Declares permissions and service configuration |
 
 ## Limitations
@@ -237,11 +240,10 @@ This is a **proof-of-concept** implementation with the following limitations:
 - **Basic error handling**: Minimal error recovery and user feedback
 - **No persistent configuration**: Settings are lost when app is closed
 - **Gateway detection**: Requires active Wi-Fi connection to detect host IP automatically
-- **VPN implementation**: 
-  - ⚠️ **POC-level VPN service**: The current VPN implementation captures packets but does NOT actually forward them
-  - **For production use**: Requires native tun2socks binaries (see "Transparent Tunneling Implementation" section below)
-  - **Current behavior**: VPN activates and captures traffic, but packets are only logged (not forwarded)
-  - **Demonstrates**: Proper VPN configuration (10.0.0.2/32, 0.0.0.0/0 route, dual DNS, MTU 1500)
+- **VPN implementation (tun2socks POC)**:
+  - ⚠️ Pure Kotlin tun2socks forwards outbound TCP through SOCKS5 but **does not reconstruct response packets back to the TUN interface**
+  - Full bidirectional flow requires native tun2socks or a TCP/IP stack (e.g., lwIP) with proper sequence/checksum handling
+  - Demonstrates proper VPN configuration (10.0.0.2/32, 0.0.0.0/0 route, dual DNS, MTU 1500)
 - **Band selection limitations**:
   - Requires Android 10+ (API 29)
   - Not supported on all devices
@@ -262,7 +264,7 @@ This is a **proof-of-concept** implementation with the following limitations:
 
 ### Current Status (POC)
 
-The app includes a VPN service that demonstrates proper VPN configuration but does NOT fully implement packet forwarding. The VPN service:
+The app now includes a **pure Kotlin tun2socks forwarder**. It establishes SOCKS5 connections for outbound TCP flows, but **does not reconstruct response packets back to the TUN interface**.
 
 ✅ **Implemented:**
 - Proper VPN interface setup (10.0.0.2/32, 0.0.0.0/0 route)
@@ -270,15 +272,13 @@ The app includes a VPN service that demonstrates proper VPN configuration but do
 - MTU 1500 setting
 - VPN permission handling
 - Foreground service with notification
-- Packet capture and logging
 - SOCKS5 proxy server for forwarding
+- Outbound TCP forwarding through SOCKS5 (via Kotlin tun2socks)
 
-❌ **Not Implemented (requires native binaries):**
-- Full TCP/IP stack for packet parsing
-- TCP connection state management
-- SOCKS5 proxy forwarding of captured packets
-- Bidirectional data relay
-- Response packet injection back to TUN
+❌ **Not Implemented (requires native binaries or full TCP/IP stack):**
+- Response packet reconstruction and injection back to TUN (missing TCP sequence/checksum handling)
+- Full TCP/IP stack state management (SYN/ACK/FIN/RST handling, retransmissions, windowing)
+- Robust UDP handling
 
 ### Production Implementation Path
 

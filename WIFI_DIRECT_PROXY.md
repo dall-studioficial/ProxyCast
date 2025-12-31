@@ -53,8 +53,9 @@ The app features **automatic host IP detection** (similar to PdaNet), which auto
 - VPN routes to SOCKS5 proxy at detected gateway IP
 
 **Current VPN Implementation (POC):**
-- ⚠️ VPN captures packets but does NOT forward them (logs only)
-- ⚠️ For production use, requires native tun2socks binaries
+- ✅ Pure Kotlin tun2socks forwards outbound TCP traffic through SOCKS5
+- ⚠️ Response packet reconstruction back to TUN is **not implemented** (connections may not complete)
+- ⚠️ For production use, replace with native tun2socks / full TCP/IP stack
 - ✅ Demonstrates proper VPN setup (10.0.0.2/32, 0.0.0.0/0, DNS, MTU)
 - See main README for production implementation guide
 
@@ -69,6 +70,8 @@ The app features **automatic host IP detection** (similar to PdaNet), which auto
 - **MainActivity**: UI and Wi-Fi Direct management
 - **WifiDirectReceiver**: Broadcast receiver for Wi-Fi P2P events
 - **ProxyServerService**: Foreground service implementing both HTTP CONNECT (port 8080) and SOCKS5 (port 1080) proxy servers (host mode)
+- **Socks5Server**: Lightweight SOCKS5 implementation (helper/alternative)
+- **Tun2Socks**: Pure Kotlin tun2socks forwarder (POC, no response reconstruction)
 - **VpnProxyService**: VPN service for automatic traffic routing through SOCKS5 proxy (client mode, POC implementation)
 
 ### Proxy Servers
@@ -117,7 +120,7 @@ On Android 10 (API 29) and higher, you can configure a custom network name (SSID
 - Single group support
 - No automatic reconnection
 - POC-level VPN implementation:
-  - VPN captures and logs packets but doesn't forward them
+  - Outbound TCP flows forwarded via SOCKS5, but response packets are not written back to TUN
   - Requires native tun2socks binaries for production use
   - See main README "Transparent Tunneling Implementation" section
 - HTTP CONNECT and SOCKS5 proxies are fully functional

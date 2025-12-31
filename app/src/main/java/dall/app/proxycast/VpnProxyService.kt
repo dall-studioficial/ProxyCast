@@ -11,42 +11,11 @@ import android.os.ParcelFileDescriptor
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.*
-import java.io.FileInputStream
-import java.io.FileOutputStream
 import java.io.IOException
-import java.net.InetSocketAddress
-import java.net.Socket
-import java.nio.ByteBuffer
-import java.util.*
 
 /**
- * VPN service that routes all device traffic through a SOCKS5 proxy server.
- * 
- * **IMPORTANT - Current Implementation Status:**
- * This is a POC (Proof of Concept) implementation that demonstrates VPN setup with proper configuration.
- * The packet processing logic is simplified and NOT suitable for production use.
- * 
- * **For Production Use:**
- * A full implementation would require:
- * 1. Native tun2socks binaries (compiled for arm64-v8a, armeabi-v7a, x86, x86_64)
- * 2. JNI bridge to launch tun2socks with TUN file descriptor
- * 3. tun2socks would handle the full TCP/IP stack and SOCKS5 forwarding
- * 
- * **What This POC Demonstrates:**
- * - Proper VPN interface configuration (10.0.0.2/32, 0.0.0.0/0 route, DNS, MTU)
- * - VPN permission handling
- * - Foreground service with notification
- * - Basic packet capture and logging
- * - Integration with SOCKS5 proxy server
- * 
- * **Recommended Production Implementation:**
- * Use libraries like:
- * - xjasonlyu/tun2socks (Go-based, supports SOCKS5)
- * - badvpn-tun2socks (C-based, well-tested)
- * - hev-socks5-tunnel (C-based, lightweight)
- * 
- * See: https://github.com/xjasonlyu/tun2socks
- * See: https://github.com/ambrop72/badvpn
+ * VPN service that routes all device traffic through the SOCKS5 proxy using a pure Kotlin
+ * tun2socks implementation (POC). For production, replace with native tun2socks binaries.
  */
 class VpnProxyService : VpnService() {
 
@@ -57,7 +26,6 @@ class VpnProxyService : VpnService() {
         const val ACTION_START_VPN = "dall.app.proxycast.START_VPN"
         const val ACTION_STOP_VPN = "dall.app.proxycast.STOP_VPN"
         const val EXTRA_PROXY_HOST = "proxy_host"
-        const val EXTRA_PROXY_PORT = "proxy_port"
         
         // VPN configuration (as specified in requirements)
         private const val VPN_ADDRESS = "10.0.0.2"
@@ -73,7 +41,8 @@ class VpnProxyService : VpnService() {
     @Volatile
     private var isRunning = false
     private var proxyHost: String = ""
-    private var proxyPort: Int = ProxyServerService.PROXY_PORT
+    private var proxyPort: Int = 0
+    private var tun2socks: Tun2Socks? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -85,7 +54,7 @@ class VpnProxyService : VpnService() {
         when (intent?.action) {
             ACTION_START_VPN -> {
                 proxyHost = intent.getStringExtra(EXTRA_PROXY_HOST) ?: ""
-                proxyPort = intent.getIntExtra(EXTRA_PROXY_PORT, ProxyServerService.PROXY_PORT)
+                proxyPort = ProxyServerService.SOCKS5_PORT
                 
                 if (proxyHost.isEmpty()) {
                     Log.e(TAG, "No proxy host provided")
@@ -93,7 +62,7 @@ class VpnProxyService : VpnService() {
                     return START_NOT_STICKY
                 }
                 
-                Log.d(TAG, "Starting VPN with proxy: $proxyHost:$proxyPort")
+                Log.d(TAG, "Starting VPN with SOCKS5 proxy: $proxyHost:$proxyPort")
                 startVpn()
             }
             ACTION_STOP_VPN -> {
@@ -145,7 +114,7 @@ class VpnProxyService : VpnService() {
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("VPN Proxy Active")
-            .setContentText("Routing traffic through $proxyHost:$proxyPort")
+            .setContentText("Routing traffic through SOCKS5 $proxyHost:$proxyPort")
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .addAction(
@@ -202,10 +171,8 @@ class VpnProxyService : VpnService() {
             Log.d(TAG, "DNS: $VPN_DNS_PRIMARY, $VPN_DNS_SECONDARY, MTU: $VPN_MTU")
             Log.d(TAG, "Proxy: $proxyHost:$proxyPort (SOCKS5)")
             
-            // Start packet processing
-            serviceScope.launch {
-                processPackets()
-            }
+            // Start tun2socks forwarding engine
+            startTun2Socks()
             
         } catch (e: Exception) {
             Log.e(TAG, "Error starting VPN service", e)
@@ -216,6 +183,8 @@ class VpnProxyService : VpnService() {
 
     private fun stopVpn() {
         isRunning = false
+        tun2socks?.stop()
+        tun2socks = null
         try {
             vpnInterface?.close()
             vpnInterface = null
@@ -225,112 +194,26 @@ class VpnProxyService : VpnService() {
         }
     }
 
-    private suspend fun processPackets() = withContext(Dispatchers.IO) {
-        val vpnFd = vpnInterface ?: return@withContext
-        
-        try {
-            val inputStream = FileInputStream(vpnFd.fileDescriptor)
-            val outputStream = FileOutputStream(vpnFd.fileDescriptor)
-            
-            val buffer = ByteBuffer.allocate(VPN_MTU)
-            
-            Log.d(TAG, "Starting packet processing loop")
-            Log.w(TAG, "Note: This is a POC implementation. Packet forwarding is simplified.")
-            Log.w(TAG, "For production, integrate native tun2socks binaries.")
-            
-            var packetCount = 0
-            
-            while (isRunning && vpnFd.fileDescriptor.valid()) {
-                try {
-                    // Read packet from VPN interface
-                    val length = inputStream.read(buffer.array())
-                    
-                    if (length > 0) {
-                        buffer.limit(length)
-                        packetCount++
-                        
-                        // Log packet info periodically (every 100 packets)
-                        if (packetCount % 100 == 0) {
-                            Log.d(TAG, "Processed $packetCount packets through VPN")
-                        }
-                        
-                        // Parse and log the packet (simplified for POC)
-                        val packet = buffer.array().copyOf(length)
-                        logPacketInfo(packet)
-                        
-                        // In a production implementation with tun2socks:
-                        // - tun2socks would read packets from the TUN fd
-                        // - Parse the TCP/IP headers
-                        // - Establish SOCKS5 connections for each TCP flow
-                        // - Forward data bidirectionally
-                        // - Write response packets back to TUN fd
-                        
-                        // For this POC, we just log and drop packets
-                        // This means the VPN will be active but traffic won't actually flow
-                        
-                        buffer.clear()
-                    }
-                } catch (e: IOException) {
-                    if (isRunning) {
-                        Log.e(TAG, "Error reading packet", e)
-                    }
-                }
-            }
-            
-            Log.d(TAG, "Packet processing loop ended. Total packets: $packetCount")
-        } catch (e: IOException) {
-            if (isRunning) {
-                Log.e(TAG, "Error processing packets", e)
-            }
+    private fun startTun2Socks() {
+        val vpnFd = vpnInterface
+        if (vpnFd == null) {
+            Log.e(TAG, "Cannot start tun2socks: VPN interface is null")
+            return
         }
-    }
 
-    /**
-     * Log basic packet information for debugging
-     * In production, this would be handled by tun2socks
-     */
-    private fun logPacketInfo(packet: ByteArray) {
         try {
-            if (packet.size < 20) return
-            
-            val version = (packet[0].toInt() shr 4) and 0x0F
-            if (version != 4) return // Only log IPv4 for simplicity
-            
-            val protocol = packet[9].toInt() and 0xFF
-            val protocolName = when (protocol) {
-                6 -> "TCP"
-                17 -> "UDP"
-                1 -> "ICMP"
-                else -> "Other($protocol)"
-            }
-            
-            // Extract destination IP
-            val destIp = String.format(
-                "%d.%d.%d.%d",
-                packet[16].toInt() and 0xFF,
-                packet[17].toInt() and 0xFF,
-                packet[18].toInt() and 0xFF,
-                packet[19].toInt() and 0xFF
+            tun2socks = Tun2Socks(
+                tunFd = vpnFd,
+                socksHost = proxyHost,
+                socksPort = proxyPort,
+                mtu = VPN_MTU
             )
-            
-            // Log first packet to each destination (to avoid spam)
-            // In production, tun2socks would handle all forwarding
-            val key = "$destIp-$protocolName"
-            if (!loggedDestinations.contains(key)) {
-                loggedDestinations.add(key)
-                Log.i(TAG, "VPN captured traffic: $protocolName -> $destIp (would forward via SOCKS5 in production)")
-            }
+            tun2socks?.start()
+            Log.d(TAG, "Tun2socks started successfully")
         } catch (e: Exception) {
-            // Ignore parsing errors
+            Log.e(TAG, "Failed to start tun2socks", e)
+            stopVpn()
+            stopSelf()
         }
     }
-
-    // Track logged destinations to avoid spam (limit size to prevent memory leak)
-    private val loggedDestinations = Collections.newSetFromMap(
-        object : LinkedHashMap<String, Boolean>(100, 0.75f, true) {
-            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Boolean>?): Boolean {
-                return size > 100 // Keep max 100 unique destinations
-            }
-        }
-    )
 }
