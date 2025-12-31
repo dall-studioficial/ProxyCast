@@ -35,10 +35,11 @@ class VpnProxyService : VpnService() {
         
         // VPN configuration
         private const val VPN_ADDRESS = "10.0.0.2"
-        private const val VPN_ROUTE = "0.0.0.0"
-        private const val VPN_PREFIX_LENGTH = 0
+        private const val VPN_ROUTE_PREFIX = "0.0.0.0"
+        private const val VPN_ROUTE_PREFIX_LENGTH = 0
         private const val VPN_MTU = 1500
-        private const val VPN_DNS = "8.8.8.8"
+        private const val VPN_DNS_PRIMARY = "1.1.1.1"
+        private const val VPN_DNS_SECONDARY = "8.8.8.8"
         
         // IP and protocol constants
         private const val IPV4_VERSION = 4
@@ -144,14 +145,15 @@ class VpnProxyService : VpnService() {
         }
 
         try {
-            // Build VPN interface
+            // Build VPN interface with proper configuration
             val builder = Builder()
                 .setSession("ProxyCast VPN")
-                .addAddress(VPN_ADDRESS, 24)
-                .addRoute(VPN_ROUTE, VPN_PREFIX_LENGTH)
-                .addDnsServer(VPN_DNS)
+                .addAddress(VPN_ADDRESS, 32) // Single IP address for VPN interface
+                .addRoute(VPN_ROUTE_PREFIX, VPN_ROUTE_PREFIX_LENGTH) // Route all traffic (0.0.0.0/0)
+                .addDnsServer(VPN_DNS_PRIMARY) // Cloudflare DNS
+                .addDnsServer(VPN_DNS_SECONDARY) // Google DNS
                 .setMtu(VPN_MTU)
-                .setBlocking(false)
+                .setBlocking(true) // Use blocking mode for simpler implementation
 
             // Establish VPN connection
             vpnInterface = builder.establish()
@@ -177,7 +179,9 @@ class VpnProxyService : VpnService() {
                 return
             }
             
-            Log.d(TAG, "VPN interface established successfully, starting packet processing")
+            Log.d(TAG, "VPN interface established successfully (10.0.0.2/32, route 0.0.0.0/0)")
+            Log.d(TAG, "DNS: $VPN_DNS_PRIMARY, $VPN_DNS_SECONDARY, MTU: $VPN_MTU")
+            Log.d(TAG, "Proxy: $proxyHost:$proxyPort (SOCKS5)")
             
             // Start packet processing
             serviceScope.launch {
