@@ -575,7 +575,7 @@ class MainActivity : ComponentActivity() {
         detectedGatewayIp = gatewayIp
         proxyHostAddress = gatewayIp
         
-        Log.d(TAG, "Starting VPN client with auto-detected proxy: $proxyHostAddress:${ProxyServerService.PROXY_PORT}")
+        Log.d(TAG, "Starting VPN client with auto-detected proxy: $proxyHostAddress (SOCKS5:${ProxyServerService.SOCKS5_PORT})")
         
         // Check if VPN permission is needed
         val vpnIntent = android.net.VpnService.prepare(this)
@@ -598,7 +598,7 @@ class MainActivity : ComponentActivity() {
             val intent = Intent(this, VpnProxyService::class.java).apply {
                 action = VpnProxyService.ACTION_START_VPN
                 putExtra(VpnProxyService.EXTRA_PROXY_HOST, proxyHostAddress)
-                putExtra(VpnProxyService.EXTRA_PROXY_PORT, ProxyServerService.SOCKS5_PORT) // Use SOCKS5
+                // SOCKS5 port will be used automatically by VpnProxyService
             }
             
             Log.d(TAG, "Starting VPN foreground service with SOCKS5 proxy: $proxyHostAddress:${ProxyServerService.SOCKS5_PORT}")
