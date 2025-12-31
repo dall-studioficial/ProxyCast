@@ -13,9 +13,12 @@ The app features **VPN-based client mode with automatic host detection** (simila
 - **Wi-Fi Direct Group Creation**: Host device creates a Wi-Fi Direct group with customizable SSID and passphrase (Android 10+)
 - **Band Selection (Android 10+)**: Choose between 2.4 GHz, 5 GHz, or auto band selection for Wi-Fi Direct group
 - **IP Address Display**: Shows both IPv4 and IPv6 addresses when available after connection
-- **HTTP CONNECT Proxy Server**: Runs on port 8080 to proxy client traffic
+- **Dual Proxy Server**: 
+  - HTTP CONNECT proxy on port 8080 for manual configuration
+  - SOCKS5 proxy on port 1080 for tun2socks integration
+- **tun2socks Integration**: Pure Kotlin implementation of tun2socks for efficient packet forwarding
 - **Automatic Host Detection**: Client automatically detects host IP via Wi-Fi Direct gateway (similar to pdaNet)
-- **VPN Client Mode**: Automatically routes all device traffic through the proxy using Android VPN Service
+- **VPN Client Mode**: Automatically routes all device traffic through the SOCKS5 proxy using Android VPN Service and tun2socks
 - **Simplified Client Flow**: Single-button "Iniciar VPN / Conectar" workflow with auto-detected gateway IP display
 - **Group Credentials Display**: Shows actual SSID, passphrase, and IP addresses for easy client configuration
 - **Foreground Service**: Proxy and VPN services run as foreground services with persistent notifications
@@ -124,6 +127,7 @@ The client now features **PdaNet-style automatic host IP detection**, eliminatin
 - 🎯 Typical Wi-Fi Direct gateway is `192.168.49.1`
 - ✨ No manual IP entry or peer discovery required
 - ⚡ Similar to pdaNet's automatic detection
+- 🚀 Uses tun2socks for efficient packet forwarding through SOCKS5 proxy
 
 **VPN Permission Dialog:**
 - 📱 The permission dialog appears **only the first time** you start the VPN
@@ -131,9 +135,22 @@ The client now features **PdaNet-style automatic host IP detection**, eliminatin
 - ❌ If you deny permission, you must tap "Iniciar VPN / Conectar" again to retry
 - 🔐 This permission allows the app to route your device traffic through the proxy
 
+**tun2socks Implementation:**
+- 🔧 Pure Kotlin implementation of tun2socks functionality
+- 📦 Reads IP packets from TUN interface
+- 🔀 Routes TCP traffic through SOCKS5 proxy (port 1080)
+- 🔄 Maintains connection tracking and bidirectional relay
+- ⚙️ TUN Configuration:
+  - Address: 10.0.0.2/32
+  - Route: 0.0.0.0/0
+  - MTU: 1500
+  - DNS: 1.1.1.1, 8.8.8.8
+  - Blocking: true
+
 **Client Mode Benefits:**
 - ✅ **Automatic host IP detection** - no manual configuration needed
 - ✅ **Single button workflow** - just "Iniciar VPN / Conectar"
+- ✅ **tun2socks integration** - efficient packet forwarding
 - ✅ Automatically routes ALL device traffic through the proxy
 - ✅ No need to configure individual apps
 - ✅ Works with apps that don't support manual proxy settings
@@ -214,8 +231,10 @@ Android 13 and later require additional permissions:
 |------|-------------|
 | `MainActivity.kt` | Main UI and Wi-Fi Direct management logic |
 | `WifiDirectReceiver.kt` | Broadcast receiver for Wi-Fi P2P events |
-| `ProxyServerService.kt` | Foreground service implementing HTTP CONNECT proxy (host mode) |
-| `VpnProxyService.kt` | VPN service for automatic traffic routing (client mode) |
+| `ProxyServerService.kt` | Foreground service implementing HTTP CONNECT and SOCKS5 proxy servers (host mode) |
+| `Socks5Server.kt` | SOCKS5 proxy server implementation (RFC 1928) |
+| `VpnProxyService.kt` | VPN service for automatic traffic routing with tun2socks (client mode) |
+| `Tun2Socks.kt` | Pure Kotlin implementation of tun2socks for packet forwarding |
 | `AndroidManifest.xml` | Declares permissions and service configuration |
 
 ## Limitations
@@ -234,6 +253,11 @@ This is a **proof-of-concept** implementation with the following limitations:
 - **Basic error handling**: Minimal error recovery and user feedback
 - **No persistent configuration**: Settings are lost when app is closed
 - **Gateway detection**: Requires active Wi-Fi connection to detect host IP automatically
+- **tun2socks limitations**:
+  - Pure Kotlin implementation (not native go-tun2socks)
+  - TCP traffic only in current POC (UDP not fully implemented)
+  - Simplified packet reconstruction
+  - For production, consider using native tun2socks or full TCP/IP stack like lwIP
 - **Band selection limitations**:
   - Requires Android 10+ (API 29)
   - Not supported on all devices

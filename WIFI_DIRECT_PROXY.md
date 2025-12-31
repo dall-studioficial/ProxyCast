@@ -9,8 +9,11 @@ The app features **automatic host IP detection** (similar to pdaNet), which auto
 - Wi-Fi Direct group creation (host mode) with custom SSID and passphrase
 - **Automatic host IP detection** via Wi-Fi Direct gateway for clients
 - **Simplified single-button client workflow** - "Iniciar VPN / Conectar"
-- HTTP CONNECT proxy server on port 8080
-- VPN-based automatic traffic routing for clients
+- **Dual proxy servers**:
+  - HTTP CONNECT proxy on port 8080
+  - SOCKS5 proxy on port 1080
+- **tun2socks integration**: Pure Kotlin implementation for efficient packet forwarding
+- VPN-based automatic traffic routing for clients through SOCKS5
 - Display of actual group SSID and passphrase
 - Foreground service with notification
 - Runtime permission handling
@@ -25,7 +28,9 @@ The app features **automatic host IP detection** (similar to pdaNet), which auto
    - Leave empty to use system-generated defaults
    - Custom SSID/password requires Android 10+ (API 29)
 4. Tap "Create Group + Start Proxy (Host)"
-5. The device will create a Wi-Fi Direct group and start the proxy server on port 8080
+5. The device will create a Wi-Fi Direct group and start both proxy servers:
+   - HTTP CONNECT on port 8080
+   - SOCKS5 on port 1080 (for tun2socks)
 6. Note the SSID, passphrase, and IP address shown in the UI
 7. Share these credentials with client devices
 
@@ -45,6 +50,7 @@ The app features **automatic host IP detection** (similar to pdaNet), which auto
 **How it works:**
 - Uses `ConnectivityManager` to detect active Wi-Fi connection
 - Extracts gateway IP from `LinkProperties` (typically `192.168.49.1` for Wi-Fi Direct)
+- Uses tun2socks to forward all traffic through SOCKS5 proxy
 - No manual peer discovery needed!
 
 ## Requirements
@@ -57,8 +63,10 @@ The app features **automatic host IP detection** (similar to pdaNet), which auto
 ### Components
 - **MainActivity**: UI and Wi-Fi Direct management
 - **WifiDirectReceiver**: Broadcast receiver for Wi-Fi P2P events
-- **ProxyServerService**: Foreground service implementing HTTP CONNECT proxy (host mode)
-- **VpnProxyService**: VPN service for automatic traffic routing through proxy (client mode)
+- **ProxyServerService**: Foreground service implementing HTTP CONNECT and SOCKS5 proxy servers (host mode)
+- **Socks5Server**: SOCKS5 proxy server implementation (RFC 1928)
+- **VpnProxyService**: VPN service for automatic traffic routing with tun2socks (client mode)
+- **Tun2Socks**: Pure Kotlin implementation of tun2socks for packet forwarding
 
 ### Permissions
 - `ACCESS_FINE_LOCATION`: Required for Wi-Fi Direct peer discovery
@@ -90,6 +98,11 @@ On Android 10 (API 29) and higher, you can configure a custom network name (SSID
 - Single group support
 - No automatic reconnection
 - POC-level implementation (minimal features)
+- tun2socks implementation:
+  - Pure Kotlin (not native go-tun2socks)
+  - TCP traffic only (UDP not fully implemented)
+  - Simplified packet reconstruction
+  - For production, consider native tun2socks or full TCP/IP stack like lwIP
 
 ## Testing
 1. Install the app on two physical Android devices
