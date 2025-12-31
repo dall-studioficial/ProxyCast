@@ -31,6 +31,8 @@ interface WifiPreferences {
 
 class WifiPreferencesStub : WifiPreferences {
     override fun listenForSsid(): Flow<String> = MutableStateFlow(ServerDefaults.WIFI_SSID)
+    // TODO: Generate secure default password or integrate with actual preferences
+    // Empty password will cause WifiDirectServer to use system-generated credentials
     override fun listenForPassword(): Flow<String> = MutableStateFlow("")
     override fun listenForBand(): Flow<ServerNetworkBand> = MutableStateFlow(ServerDefaults.WIFI_NETWORK_BAND)
 }
