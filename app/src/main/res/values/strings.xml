@@ -1,3 +1,12 @@
 <resources>
     <string name="app_name">ProxyCast</string>
+    <!-- Gateway detection status -->
+    <string name="host_detected">Host Detectado: %1$s</string>
+    <string name="host_not_detected">Host no detectado</string>
+    <!-- VPN button labels -->
+    <string name="btn_disconnect_vpn">Desconectar VPN</string>
+    <string name="btn_start_vpn">Iniciar VPN / Conectar</string>
+    <!-- Gateway messages -->
+    <string name="gateway_ready_msg">Listo para conectar vía VPN. IP de gateway auto-detectado desde red Wi-Fi.</string>
+    <string name="gateway_not_detected_msg">Conecta a una red Wi-Fi Direct (SSID: DIRECT-*) para auto-detectar IP de gateway.</string>
 </resources>
