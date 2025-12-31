@@ -44,7 +44,7 @@ class VpnProxyService : VpnService() {
     @Volatile
     private var isRunning = false
     private var proxyHost: String = ""
-    private var proxyPort: Int = ProxyServerService.SOCKS5_PORT
+    private var proxyPort: Int = 0
 
     override fun onCreate() {
         super.onCreate()

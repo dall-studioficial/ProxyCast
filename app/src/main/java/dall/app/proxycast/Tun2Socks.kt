@@ -193,7 +193,8 @@ class Tun2Socks(
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to establish SOCKS5 connection: $e")
-                    // Send RST back to client
+                    // TODO: Send RST packet back to client to properly terminate the connection
+                    // This would require constructing an IP+TCP packet with RST flag set
                 }
             } else if (fin || rst) {
                 // Connection terminating
@@ -259,16 +260,17 @@ class Tun2Socks(
         }
         
         // 3. Send CONNECT request
-        val request = ByteArray(10 + targetHost.length)
+        val domainLen = targetHost.length
+        val request = ByteArray(7 + domainLen)
         request[0] = SOCKS_VERSION.toByte()
         request[1] = CONNECT.toByte()
         request[2] = 0 // Reserved
         request[3] = 3 // Domain name
-        request[4] = targetHost.length.toByte()
+        request[4] = domainLen.toByte()
         
         targetHost.toByteArray().copyInto(request, 5)
         
-        val portOffset = 5 + targetHost.length
+        val portOffset = 5 + domainLen
         request[portOffset] = (targetPort shr 8).toByte()
         request[portOffset + 1] = targetPort.toByte()
         
@@ -300,6 +302,11 @@ class Tun2Socks(
     
     /**
      * Relay data from SOCKS5 socket back to TUN
+     * Note: In a full implementation, this would reconstruct IP+TCP packets.
+     * For this POC, we acknowledge the limitation that response packets
+     * are not properly written back to the TUN interface.
+     * A production implementation would need a full TCP/IP stack like lwIP
+     * to properly reconstruct packets with correct sequence numbers, checksums, etc.
      */
     private suspend fun relayTcpConnection(socket: Socket, connectionKey: String, outputStream: FileOutputStream) {
         try {
@@ -310,11 +317,14 @@ class Tun2Socks(
                 val bytesRead = input.read(buffer)
                 if (bytesRead == -1) break
                 
-                // In a full implementation, we'd reconstruct IP+TCP packets
-                // For this POC, we're simplifying - the VPN might drop some packets
-                // A production implementation would need a full TCP/IP stack like lwIP
+                // TODO: Reconstruct IP+TCP packets with proper headers
+                // This requires:
+                // 1. IP header with correct source/dest IPs (swapped)
+                // 2. TCP header with correct ports (swapped), sequence numbers, ACK, checksum
+                // 3. Payload data
+                // For now, we log this limitation
                 
-                Log.v(TAG, "Received $bytesRead bytes from remote for $connectionKey")
+                Log.v(TAG, "Received $bytesRead bytes from remote for $connectionKey (packet reconstruction not implemented)")
             }
         } catch (e: IOException) {
             // Connection closed

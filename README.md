@@ -256,8 +256,10 @@ This is a **proof-of-concept** implementation with the following limitations:
 - **tun2socks limitations**:
   - Pure Kotlin implementation (not native go-tun2socks)
   - TCP traffic only in current POC (UDP not fully implemented)
-  - Simplified packet reconstruction
-  - For production, consider using native tun2socks or full TCP/IP stack like lwIP
+  - **Important**: Response packets from remote servers are not reconstructed and written back to TUN
+  - This POC demonstrates the architecture but TCP connections may not complete successfully
+  - Full implementation requires IP+TCP packet reconstruction with sequence numbers, checksums, etc.
+  - For production, use native go-tun2socks or a full TCP/IP stack like lwIP
 - **Band selection limitations**:
   - Requires Android 10+ (API 29)
   - Not supported on all devices
