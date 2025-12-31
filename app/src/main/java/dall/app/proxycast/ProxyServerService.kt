@@ -25,9 +25,11 @@ class ProxyServerService : Service() {
         private const val NOTIFICATION_ID = 1001
         private const val CHANNEL_ID = "ProxyServerChannel"
         const val PROXY_PORT = 8080
+        const val SOCKS5_PORT = 1080
     }
 
     private var serverSocket: ServerSocket? = null
+    private var socks5Server: Socks5Server? = null
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var isRunning = false
 
@@ -76,7 +78,7 @@ class ProxyServerService : Service() {
     private fun createNotification(): Notification {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Proxy Server Running")
-            .setContentText("HTTP CONNECT proxy on port $PROXY_PORT")
+            .setContentText("HTTP:$PROXY_PORT, SOCKS5:$SOCKS5_PORT")
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
@@ -84,10 +86,17 @@ class ProxyServerService : Service() {
 
     private fun startProxyServer() {
         isRunning = true
+        
+        // Start SOCKS5 server for tun2socks
+        socks5Server = Socks5Server(SOCKS5_PORT)
+        socks5Server?.start()
+        Log.d(TAG, "SOCKS5 server started on port $SOCKS5_PORT")
+        
+        // Start HTTP CONNECT proxy server
         serviceScope.launch {
             try {
                 serverSocket = ServerSocket(PROXY_PORT)
-                Log.d(TAG, "Proxy server started on port $PROXY_PORT")
+                Log.d(TAG, "HTTP CONNECT proxy server started on port $PROXY_PORT")
                 
                 val socket = serverSocket
                 if (socket == null || socket.isClosed) {
@@ -98,7 +107,7 @@ class ProxyServerService : Service() {
                 while (isRunning && !socket.isClosed) {
                     try {
                         val clientSocket = socket.accept()
-                        Log.d(TAG, "Client connected: ${clientSocket.inetAddress}")
+                        Log.d(TAG, "HTTP client connected: ${clientSocket.inetAddress}")
                         
                         // Handle each client in a separate coroutine
                         launch {
@@ -111,7 +120,7 @@ class ProxyServerService : Service() {
                     }
                 }
             } catch (e: IOException) {
-                Log.e(TAG, "Error starting proxy server", e)
+                Log.e(TAG, "Error starting HTTP proxy server", e)
             }
         }
     }
@@ -119,10 +128,14 @@ class ProxyServerService : Service() {
     private fun stopProxyServer() {
         isRunning = false
         try {
+            socks5Server?.stop()
+            socks5Server = null
+            Log.d(TAG, "SOCKS5 server stopped")
+            
             serverSocket?.close()
-            Log.d(TAG, "Proxy server stopped")
+            Log.d(TAG, "HTTP proxy server stopped")
         } catch (e: IOException) {
-            Log.e(TAG, "Error stopping proxy server", e)
+            Log.e(TAG, "Error stopping proxy servers", e)
         }
     }
 

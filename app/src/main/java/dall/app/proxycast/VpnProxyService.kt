@@ -11,12 +11,7 @@ import android.os.ParcelFileDescriptor
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.*
-import java.io.FileInputStream
-import java.io.FileOutputStream
 import java.io.IOException
-import java.net.InetSocketAddress
-import java.net.Socket
-import java.nio.ByteBuffer
 
 /**
  * VPN service that routes all device traffic through the HTTP CONNECT proxy server.
@@ -35,25 +30,21 @@ class VpnProxyService : VpnService() {
         
         // VPN configuration
         private const val VPN_ADDRESS = "10.0.0.2"
+        private const val VPN_PREFIX_LENGTH = 32
         private const val VPN_ROUTE = "0.0.0.0"
-        private const val VPN_PREFIX_LENGTH = 0
+        private const val VPN_ROUTE_PREFIX = 0
         private const val VPN_MTU = 1500
-        private const val VPN_DNS = "8.8.8.8"
-        
-        // IP and protocol constants
-        private const val IPV4_VERSION = 4
-        private const val IP_PROTOCOL_OFFSET = 9
-        private const val TCP_PROTOCOL = 6
-        private const val IP_DEST_OFFSET = 16
-        private const val MAX_HEADER_LINES = 50 // Prevent infinite loop in header reading
+        private const val VPN_DNS_PRIMARY = "1.1.1.1"
+        private const val VPN_DNS_SECONDARY = "8.8.8.8"
     }
 
     private var vpnInterface: ParcelFileDescriptor? = null
+    private var tun2socks: Tun2Socks? = null
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     @Volatile
     private var isRunning = false
     private var proxyHost: String = ""
-    private var proxyPort: Int = ProxyServerService.PROXY_PORT
+    private var proxyPort: Int = ProxyServerService.SOCKS5_PORT
 
     override fun onCreate() {
         super.onCreate()
@@ -65,7 +56,8 @@ class VpnProxyService : VpnService() {
         when (intent?.action) {
             ACTION_START_VPN -> {
                 proxyHost = intent.getStringExtra(EXTRA_PROXY_HOST) ?: ""
-                proxyPort = intent.getIntExtra(EXTRA_PROXY_PORT, ProxyServerService.PROXY_PORT)
+                // Use SOCKS5 port for tun2socks
+                proxyPort = ProxyServerService.SOCKS5_PORT
                 
                 if (proxyHost.isEmpty()) {
                     Log.e(TAG, "No proxy host provided")
@@ -73,7 +65,7 @@ class VpnProxyService : VpnService() {
                     return START_NOT_STICKY
                 }
                 
-                Log.d(TAG, "Starting VPN with proxy: $proxyHost:$proxyPort")
+                Log.d(TAG, "Starting VPN with SOCKS5 proxy: $proxyHost:$proxyPort")
                 startVpn()
             }
             ACTION_STOP_VPN -> {
@@ -144,14 +136,15 @@ class VpnProxyService : VpnService() {
         }
 
         try {
-            // Build VPN interface
+            // Build VPN interface with proper configuration
             val builder = Builder()
                 .setSession("ProxyCast VPN")
-                .addAddress(VPN_ADDRESS, 24)
-                .addRoute(VPN_ROUTE, VPN_PREFIX_LENGTH)
-                .addDnsServer(VPN_DNS)
+                .addAddress(VPN_ADDRESS, VPN_PREFIX_LENGTH)
+                .addRoute(VPN_ROUTE, VPN_ROUTE_PREFIX)
+                .addDnsServer(VPN_DNS_PRIMARY)
+                .addDnsServer(VPN_DNS_SECONDARY)
                 .setMtu(VPN_MTU)
-                .setBlocking(false)
+                .setBlocking(true) // Blocking mode for tun2socks
 
             // Establish VPN connection
             vpnInterface = builder.establish()
@@ -171,18 +164,15 @@ class VpnProxyService : VpnService() {
                 Log.d(TAG, "VPN foreground service started with notification")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to start foreground service", e)
-                // Clean up and stop service
                 stopVpn()
                 stopSelf()
                 return
             }
             
-            Log.d(TAG, "VPN interface established successfully, starting packet processing")
+            Log.d(TAG, "VPN interface established successfully, starting tun2socks")
             
-            // Start packet processing
-            serviceScope.launch {
-                processPackets()
-            }
+            // Start tun2socks forwarding engine
+            startTun2Socks()
             
         } catch (e: Exception) {
             Log.e(TAG, "Error starting VPN service", e)
@@ -193,6 +183,13 @@ class VpnProxyService : VpnService() {
 
     private fun stopVpn() {
         isRunning = false
+        
+        // Stop tun2socks
+        tun2socks?.stop()
+        tun2socks = null
+        Log.d(TAG, "Tun2socks stopped")
+        
+        // Close VPN interface
         try {
             vpnInterface?.close()
             vpnInterface = null
@@ -201,132 +198,30 @@ class VpnProxyService : VpnService() {
             Log.e(TAG, "Error stopping VPN", e)
         }
     }
-
-    private suspend fun processPackets() = withContext(Dispatchers.IO) {
-        val vpnFd = vpnInterface ?: return@withContext
+    
+    /**
+     * Start tun2socks forwarding engine
+     */
+    private fun startTun2Socks() {
+        val vpnFd = vpnInterface
+        if (vpnFd == null) {
+            Log.e(TAG, "Cannot start tun2socks: VPN interface is null")
+            return
+        }
         
         try {
-            val inputStream = FileInputStream(vpnFd.fileDescriptor)
-            val outputStream = FileOutputStream(vpnFd.fileDescriptor)
-            
-            val buffer = ByteBuffer.allocate(VPN_MTU)
-            
-            Log.d(TAG, "Starting packet processing loop")
-            
-            while (isRunning && vpnFd.fileDescriptor.valid()) {
-                // Read packet from VPN interface
-                val length = inputStream.read(buffer.array())
-                
-                if (length > 0) {
-                    buffer.limit(length)
-                    
-                    // Parse and process the packet
-                    val packet = buffer.array().copyOf(length)
-                    processPacket(packet, outputStream)
-                    
-                    buffer.clear()
-                }
-            }
-            
-            Log.d(TAG, "Packet processing loop ended")
-        } catch (e: IOException) {
-            if (isRunning) {
-                Log.e(TAG, "Error processing packets", e)
-            }
-        }
-    }
-
-    private suspend fun processPacket(packet: ByteArray, outputStream: FileOutputStream) {
-        try {
-            // Parse IP header to get destination
-            if (packet.size < 20) return
-            
-            val version = (packet[0].toInt() shr 4) and 0x0F
-            if (version != IPV4_VERSION) {
-                // Only handle IPv4 for this POC
-                Log.d(TAG, "Ignoring non-IPv4 packet")
-                return
-            }
-            
-            val protocol = packet[IP_PROTOCOL_OFFSET].toInt() and 0xFF
-            
-            // Extract destination IP
-            val destIp = String.format(
-                "%d.%d.%d.%d",
-                packet[IP_DEST_OFFSET].toInt() and 0xFF,
-                packet[IP_DEST_OFFSET + 1].toInt() and 0xFF,
-                packet[IP_DEST_OFFSET + 2].toInt() and 0xFF,
-                packet[IP_DEST_OFFSET + 3].toInt() and 0xFF
+            tun2socks = Tun2Socks(
+                tunFd = vpnFd,
+                socksHost = proxyHost,
+                socksPort = proxyPort,
+                mtu = VPN_MTU
             )
-            
-            // For this POC, we'll route TCP packets through the proxy
-            if (protocol == TCP_PROTOCOL) {
-                // Extract destination port
-                val ihl = (packet[0].toInt() and 0x0F) * 4
-                if (packet.size < ihl + 4) return
-                
-                val destPort = ((packet[ihl + 2].toInt() and 0xFF) shl 8) or (packet[ihl + 3].toInt() and 0xFF)
-                
-                Log.d(TAG, "TCP packet to $destIp:$destPort - routing through proxy")
-                
-                // Route through proxy (simplified - in production would need full TCP stack)
-                routeThroughProxy(destIp, destPort, packet, outputStream)
-            }
+            tun2socks?.start()
+            Log.d(TAG, "Tun2socks started successfully")
         } catch (e: Exception) {
-            Log.e(TAG, "Error processing packet", e)
-        }
-    }
-
-    private suspend fun routeThroughProxy(
-        destIp: String,
-        destPort: Int,
-        packet: ByteArray,
-        outputStream: FileOutputStream
-    ) = withContext(Dispatchers.IO) {
-        try {
-            // Connect to proxy server
-            val proxySocket = Socket()
-            proxySocket.connect(InetSocketAddress(proxyHost, proxyPort), 5000)
-            
-            // Send CONNECT request
-            val connectRequest = "CONNECT $destIp:$destPort HTTP/1.1\r\n" +
-                    "Host: $destIp:$destPort\r\n" +
-                    "Proxy-Connection: keep-alive\r\n" +
-                    "\r\n"
-            
-            proxySocket.getOutputStream().write(connectRequest.toByteArray())
-            proxySocket.getOutputStream().flush()
-            
-            // Read proxy response
-            val response = proxySocket.getInputStream().bufferedReader().readLine()
-            
-            // Check for proper HTTP 200 status line format
-            if (response?.startsWith("HTTP/1.") == true && response.contains(" 200 ")) {
-                Log.d(TAG, "Proxy connection established to $destIp:$destPort")
-                
-                // Forward data through proxy
-                // Note: This is a simplified implementation
-                // A production VPN would need a full TCP/IP stack implementation
-                
-                // Read remaining headers with limit to prevent hanging
-                var headerCount = 0
-                while (headerCount < MAX_HEADER_LINES) {
-                    val line = proxySocket.getInputStream().bufferedReader().readLine()
-                    if (line.isNullOrEmpty()) break
-                    headerCount++
-                }
-                
-                // Send original packet data through proxy
-                // (In a real implementation, we'd extract the TCP payload and forward it)
-                
-            } else {
-                Log.e(TAG, "Proxy connection failed: $response")
-            }
-            
-            proxySocket.close()
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "Error routing through proxy", e)
+            Log.e(TAG, "Failed to start tun2socks", e)
+            stopVpn()
+            stopSelf()
         }
     }
 }
