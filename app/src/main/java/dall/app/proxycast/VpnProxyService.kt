@@ -26,7 +26,6 @@ class VpnProxyService : VpnService() {
         const val ACTION_START_VPN = "dall.app.proxycast.START_VPN"
         const val ACTION_STOP_VPN = "dall.app.proxycast.STOP_VPN"
         const val EXTRA_PROXY_HOST = "proxy_host"
-        const val EXTRA_PROXY_PORT = "proxy_port"
         
         // VPN configuration (as specified in requirements)
         private const val VPN_ADDRESS = "10.0.0.2"

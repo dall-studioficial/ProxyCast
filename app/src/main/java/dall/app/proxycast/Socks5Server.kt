@@ -23,6 +23,7 @@ class Socks5Server(private val port: Int) {
         private const val IPV4 = 1
         private const val DOMAIN = 3
         private const val IPV6 = 4
+        private const val AUTH_METHOD_NOT_SUPPORTED = 0xFF
     }
 
     private var serverSocket: ServerSocket? = null
@@ -115,7 +116,7 @@ class Socks5Server(private val port: Int) {
             input.read(methods)
 
             if (!methods.contains(NO_AUTH.toByte())) {
-                output.write(byteArrayOf(SOCKS_VERSION.toByte(), 0xFF.toByte()))
+                output.write(byteArrayOf(SOCKS_VERSION.toByte(), AUTH_METHOD_NOT_SUPPORTED.toByte()))
                 false
             } else {
                 output.write(byteArrayOf(SOCKS_VERSION.toByte(), NO_AUTH.toByte()))
@@ -162,6 +163,7 @@ class Socks5Server(private val port: Int) {
                     val addr = ByteArray(16)
                     input.read(addr)
                     val port = ((input.read() and 0xFF) shl 8) or (input.read() and 0xFF)
+                    sendResponse(output, 0x08)
                     return null
                 }
 

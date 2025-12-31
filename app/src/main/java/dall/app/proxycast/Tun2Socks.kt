@@ -37,7 +37,9 @@ class Tun2Socks(
         private const val NO_AUTH = 0
         private const val CONNECT = 1
         private const val IPV4 = 1
+        private const val DOMAIN = 3
         private const val UDP_ASSOCIATE = 3
+        private const val SOCKS5_SUCCESS = 0
     }
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -222,19 +224,39 @@ class Tun2Socks(
             throw IOException("SOCKS5 auth failed")
         }
 
-        val domainLen = targetHost.length
-        val request = ByteArray(7 + domainLen)
-        request[0] = SOCKS_VERSION.toByte()
-        request[1] = CONNECT.toByte()
-        request[2] = 0
-        request[3] = 3
-        request[4] = domainLen.toByte()
+        val ipv4Parts = targetHost.split('.').mapNotNull { part ->
+            part.toIntOrNull()?.takeIf { it in 0..255 }
+        }
 
-        targetHost.toByteArray().copyInto(request, 5)
-
-        val portOffset = 5 + domainLen
-        request[portOffset] = (targetPort shr 8).toByte()
-        request[portOffset + 1] = targetPort.toByte()
+        val request: ByteArray = if (ipv4Parts.size == 4) {
+            ByteArray(10).apply {
+                this[0] = SOCKS_VERSION.toByte()
+                this[1] = CONNECT.toByte()
+                this[2] = 0
+                this[3] = IPV4.toByte()
+                for (i in 0 until 4) {
+                    this[4 + i] = ipv4Parts[i].toByte()
+                }
+                this[8] = (targetPort shr 8).toByte()
+                this[9] = targetPort.toByte()
+            }
+        } else {
+            val domainBytes = targetHost.toByteArray()
+            if (domainBytes.isEmpty() || domainBytes.size > 255) {
+                throw IOException("Invalid domain length for SOCKS5 request")
+            }
+            ByteArray(7 + domainBytes.size).apply {
+                this[0] = SOCKS_VERSION.toByte()
+                this[1] = CONNECT.toByte()
+                this[2] = 0
+                this[3] = DOMAIN.toByte()
+                this[4] = domainBytes.size.toByte()
+                domainBytes.copyInto(this, 5)
+                val portOffset = 5 + domainBytes.size
+                this[portOffset] = (targetPort shr 8).toByte()
+                this[portOffset + 1] = targetPort.toByte()
+            }
+        }
 
         output.write(request)
         output.flush()
@@ -242,7 +264,7 @@ class Tun2Socks(
         val response = ByteArray(10)
         input.read(response, 0, 4)
 
-        if (response[1] != 0.toByte()) {
+        if (response[1] != SOCKS5_SUCCESS.toByte()) {
             throw IOException("SOCKS5 CONNECT failed: ${response[1]}")
         }
 
@@ -250,6 +272,7 @@ class Tun2Socks(
             1 -> input.read(response, 4, 6)
             3 -> {
                 val len = input.read()
+                if (len < 0) throw IOException("Unexpected end of stream reading domain length")
                 input.read(ByteArray(len + 2))
             }
             4 -> input.read(response, 4, 18)
