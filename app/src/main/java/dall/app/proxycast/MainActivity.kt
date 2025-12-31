@@ -8,7 +8,6 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
-import android.net.wifi.WifiInfo
 import android.net.wifi.WifiManager
 import android.net.wifi.p2p.WifiP2pConfig
 import android.net.wifi.p2p.WifiP2pDevice
@@ -31,6 +30,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -686,7 +686,11 @@ class MainActivity : ComponentActivity() {
                 if (route.isDefaultRoute) {
                     val gateway = route.gateway
                     if (gateway is Inet4Address) {
-                        val gatewayIp = gateway.hostAddress ?: ""
+                        val gatewayIp = gateway.hostAddress
+                        if (gatewayIp.isNullOrEmpty()) {
+                            Log.w(TAG, "Gateway found but hostAddress is null/empty - possible system networking issue")
+                            return ""
+                        }
                         Log.d(TAG, "Detected gateway IP: $gatewayIp")
                         return gatewayIp
                     }
@@ -713,7 +717,9 @@ class MainActivity : ComponentActivity() {
             val wifiInfo = wifiManager.connectionInfo
             
             if (wifiInfo != null) {
-                val ssid = wifiInfo.ssid?.trim('"') ?: ""
+                // Android's WifiInfo.ssid typically wraps SSIDs in double quotes
+                // Use removeSurrounding to safely remove quotes only if they exist on both sides
+                val ssid = wifiInfo.ssid?.removeSurrounding("\"") ?: ""
                 Log.d(TAG, "Current Wi-Fi SSID: $ssid")
                 return ssid.startsWith("DIRECT-", ignoreCase = true)
             }
@@ -1240,9 +1246,9 @@ fun WifiDirectProxyScreen(
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
                         text = if (detectedGatewayIp.isNotEmpty()) 
-                            "Host Detectado: $detectedGatewayIp" 
+                            stringResource(R.string.host_detected, detectedGatewayIp)
                         else 
-                            "Host not detected",
+                            stringResource(R.string.host_not_detected),
                         style = MaterialTheme.typography.titleMedium,
                         color = if (detectedGatewayIp.isNotEmpty())
                             MaterialTheme.colorScheme.onPrimaryContainer
@@ -1252,9 +1258,9 @@ fun WifiDirectProxyScreen(
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = if (detectedGatewayIp.isNotEmpty()) 
-                            "Ready to connect via VPN. Gateway IP auto-detected from Wi-Fi network." 
+                            stringResource(R.string.gateway_ready_msg)
                         else 
-                            "Connect to a Wi-Fi Direct network (SSID: DIRECT-*) to auto-detect gateway IP.",
+                            stringResource(R.string.gateway_not_detected_msg),
                         style = MaterialTheme.typography.bodySmall,
                         color = if (detectedGatewayIp.isNotEmpty())
                             MaterialTheme.colorScheme.onPrimaryContainer
@@ -1274,7 +1280,7 @@ fun WifiDirectProxyScreen(
                         containerColor = MaterialTheme.colorScheme.error
                     )
                 ) {
-                    Text("Desconectar VPN")
+                    Text(stringResource(R.string.btn_disconnect_vpn))
                 }
             } else {
                 Button(
@@ -1286,7 +1292,7 @@ fun WifiDirectProxyScreen(
                         containerColor = MaterialTheme.colorScheme.secondary
                     )
                 ) {
-                    Text("Iniciar VPN / Conectar")
+                    Text(stringResource(R.string.btn_start_vpn))
                 }
             }
         }
