@@ -1,21 +1,24 @@
 # ProxyCast – Wi-Fi Direct Proxy POC
 
-A proof-of-concept Android application demonstrating Wi-Fi Direct group creation with HTTP CONNECT proxy functionality, enabling one device to act as a network proxy for other connected devices.
+A proof-of-concept Android application demonstrating Wi-Fi Direct group creation with HTTP CONNECT and SOCKS5 proxy functionality, enabling one device to act as a network proxy for other connected devices.
 
 ## Overview
 
-ProxyCast allows Android devices to create ad-hoc network connections using Wi-Fi Direct (Wi-Fi P2P) and route traffic through an HTTP CONNECT proxy server. One device acts as the **host** (group owner), creating a Wi-Fi Direct group and running a proxy server on port 8080. Other devices act as **clients**, connecting to the host to route their network traffic through the proxy.
+ProxyCast allows Android devices to create ad-hoc network connections using Wi-Fi Direct (Wi-Fi P2P) and route traffic through proxy servers. One device acts as the **host** (group owner), creating a Wi-Fi Direct group and running both HTTP CONNECT (port 8080) and SOCKS5 (port 1080) proxy servers. Other devices act as **clients**, connecting to the host to route their network traffic through the proxy.
 
-The app features **VPN-based client mode with automatic host detection** (similar to pdaNet), which automatically detects the host IP via the Wi-Fi Direct gateway and routes all device traffic through the proxy using Android's VPN Service API, eliminating the need for manual peer discovery or proxy configuration.
+The app features **VPN-based client mode with automatic host detection** (similar to PdaNet), which automatically detects the host IP via the Wi-Fi Direct gateway and routes all device traffic through the SOCKS5 proxy using Android's VPN Service API, eliminating the need for manual peer discovery or proxy configuration.
 
 ## Features
 
 - **Wi-Fi Direct Group Creation**: Host device creates a Wi-Fi Direct group with customizable SSID and passphrase (Android 10+)
 - **Band Selection (Android 10+)**: Choose between 2.4 GHz, 5 GHz, or auto band selection for Wi-Fi Direct group
 - **IP Address Display**: Shows both IPv4 and IPv6 addresses when available after connection
-- **HTTP CONNECT Proxy Server**: Runs on port 8080 to proxy client traffic
-- **Automatic Host Detection**: Client automatically detects host IP via Wi-Fi Direct gateway (similar to pdaNet)
-- **VPN Client Mode**: Automatically routes all device traffic through the proxy using Android VPN Service
+- **Dual Proxy Servers**: 
+  - **HTTP CONNECT Proxy**: Runs on port 8080 for HTTP CONNECT requests
+  - **SOCKS5 Proxy**: Runs on port 1080 for SOCKS5 connections (used by VPN client)
+- **Automatic Host Detection**: Client automatically detects host IP via Wi-Fi Direct gateway (similar to PdaNet)
+- **VPN Client Mode**: Automatically routes all device traffic through the SOCKS5 proxy using Android VPN Service
+  - VPN configured with 10.0.0.2/32 address, 0.0.0.0/0 route, dual DNS (1.1.1.1, 8.8.8.8), MTU 1500
 - **Simplified Client Flow**: Single-button "Iniciar VPN / Conectar" workflow with auto-detected gateway IP display
 - **Group Credentials Display**: Shows actual SSID, passphrase, and IP addresses for easy client configuration
 - **Foreground Service**: Proxy and VPN services run as foreground services with persistent notifications
@@ -214,8 +217,8 @@ Android 13 and later require additional permissions:
 |------|-------------|
 | `MainActivity.kt` | Main UI and Wi-Fi Direct management logic |
 | `WifiDirectReceiver.kt` | Broadcast receiver for Wi-Fi P2P events |
-| `ProxyServerService.kt` | Foreground service implementing HTTP CONNECT proxy (host mode) |
-| `VpnProxyService.kt` | VPN service for automatic traffic routing (client mode) |
+| `ProxyServerService.kt` | Foreground service implementing HTTP CONNECT (port 8080) and SOCKS5 (port 1080) proxy servers (host mode) |
+| `VpnProxyService.kt` | VPN service for automatic traffic routing (client mode) - POC implementation, requires tun2socks for production |
 | `AndroidManifest.xml` | Declares permissions and service configuration |
 
 ## Limitations
@@ -234,6 +237,11 @@ This is a **proof-of-concept** implementation with the following limitations:
 - **Basic error handling**: Minimal error recovery and user feedback
 - **No persistent configuration**: Settings are lost when app is closed
 - **Gateway detection**: Requires active Wi-Fi connection to detect host IP automatically
+- **VPN implementation**: 
+  - ⚠️ **POC-level VPN service**: The current VPN implementation captures packets but does NOT actually forward them
+  - **For production use**: Requires native tun2socks binaries (see "Transparent Tunneling Implementation" section below)
+  - **Current behavior**: VPN activates and captures traffic, but packets are only logged (not forwarded)
+  - **Demonstrates**: Proper VPN configuration (10.0.0.2/32, 0.0.0.0/0 route, dual DNS, MTU 1500)
 - **Band selection limitations**:
   - Requires Android 10+ (API 29)
   - Not supported on all devices
@@ -250,6 +258,88 @@ This is a **proof-of-concept** implementation with the following limitations:
 - **Wi-Fi Direct support**: Both devices must support Wi-Fi Direct
 - **Proximity required**: Devices must be within Wi-Fi Direct range (typically ~50-100m)
 
+## Transparent Tunneling Implementation
+
+### Current Status (POC)
+
+The app includes a VPN service that demonstrates proper VPN configuration but does NOT fully implement packet forwarding. The VPN service:
+
+✅ **Implemented:**
+- Proper VPN interface setup (10.0.0.2/32, 0.0.0.0/0 route)
+- Dual DNS configuration (1.1.1.1, 8.8.8.8)
+- MTU 1500 setting
+- VPN permission handling
+- Foreground service with notification
+- Packet capture and logging
+- SOCKS5 proxy server for forwarding
+
+❌ **Not Implemented (requires native binaries):**
+- Full TCP/IP stack for packet parsing
+- TCP connection state management
+- SOCKS5 proxy forwarding of captured packets
+- Bidirectional data relay
+- Response packet injection back to TUN
+
+### Production Implementation Path
+
+For a fully functional transparent tunneling solution, you need to integrate **native tun2socks binaries**:
+
+#### Option 1: xjasonlyu/tun2socks (Recommended)
+- Modern Go-based implementation
+- Good SOCKS5 support
+- Active development
+- Cross-platform binaries available
+- GitHub: https://github.com/xjasonlyu/tun2socks
+
+**Integration Steps:**
+1. Download precompiled binaries for Android architectures:
+   - arm64-v8a (most modern devices)
+   - armeabi-v7a (older 32-bit ARM)
+   - x86_64 (emulators)
+   - x86 (older emulators)
+2. Add binaries to `app/src/main/jniLibs/[arch]/libtun2socks.so`
+3. Create JNI wrapper to launch tun2socks with TUN file descriptor
+4. Pass SOCKS5 proxy address (detected gateway IP + port 1080)
+5. Monitor process and handle lifecycle
+
+#### Option 2: badvpn-tun2socks
+- C-based, battle-tested
+- Used in many VPN apps
+- GitHub: https://github.com/ambrop72/badvpn
+- Requires compilation with Android NDK
+
+#### Option 3: hev-socks5-tunnel
+- Lightweight C implementation
+- Designed specifically for SOCKS5
+- GitHub: https://github.com/heiher/hev-socks5-tunnel
+
+### Why Native Binaries Are Needed
+
+Implementing a full TCP/IP stack in userspace (Java/Kotlin) is complex and inefficient:
+- Need to parse IP, TCP, UDP headers
+- Manage TCP connection states (SYN, ACK, FIN, etc.)
+- Handle TCP window sizing, retransmissions
+- Calculate checksums
+- Reassemble fragmented packets
+- Maintain connection tables
+
+Native tun2socks implementations (written in C/Go) handle all of this efficiently using optimized networking libraries (e.g., lwIP, gVisor netstack).
+
+### Example tun2socks Launch Command
+
+```bash
+./tun2socks -device tun://fd[VPN_FD] -proxy socks5://192.168.49.1:1080 -loglevel info
+```
+
+Where:
+- `fd[VPN_FD]` = File descriptor from VpnService.Builder.establish()
+- `192.168.49.1:1080` = Detected gateway IP + SOCKS5 port
+
+### References
+- [tun2socks Android Integration Guide](https://blog.csdn.net/qq_35993502/article/details/137840430)
+- [badvpn-tun2socks Manual](https://man.archlinux.org/man/badvpn-tun2socks.8.en.txt)
+- [Android VpnService Documentation](https://developer.android.com/reference/android/net/VpnService)
+
 ## Next Steps
 
 To evolve this POC into a more robust solution, consider:
@@ -261,12 +351,12 @@ To evolve this POC into a more robust solution, consider:
 - [ ] Implement secure credential exchange
 
 ### Feature Additions
+- [ ] Integrate native tun2socks binaries for full transparent tunneling
 - [ ] Multi-client support with connection management UI
 - [ ] Automatic reconnection on connection loss
 - [ ] Persistent configuration storage
 - [ ] QR code sharing for easy credential distribution
 - [ ] Connection statistics and monitoring
-- [ ] Support for multiple proxy protocols (SOCKS5, etc.)
 
 ### User Experience
 - [ ] Improved error messages and recovery suggestions
