@@ -30,7 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import dall.app.proxycast.ui.theme.ProxyCastTheme
-import dall.app.proxycast.ui.tethering.TetheringScreen
+import dall.app.proxycast.ui.info.InfoScreen
 import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.NetworkInterface
@@ -145,7 +145,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             ProxyCastTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    TetheringScreen(
+                    InfoScreen(
                         modifier = Modifier.padding(innerPadding),
                         statusText = statusText,
                         groupSsid = groupSsid,

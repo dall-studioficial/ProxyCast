@@ -1,42 +1,51 @@
-package dall.app.proxycast.ui.tethering
+/*
+ * Copyright 2024 pyamsoft
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at:
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package dall.app.proxycast.ui.info
 
 import android.os.Build
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
-import dall.app.proxycast.ProxyServerService
-import dall.app.proxycast.R
 
+/**
+ * Device setup component for Wi-Fi Direct group configuration
+ * Adapted from TetherFuseNet for ProxyCast
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TetheringScreen(
+fun RenderDeviceSetup(
     modifier: Modifier = Modifier,
-    statusText: String,
+    isGroupOwner: Boolean,
     groupSsid: String,
     groupPassphrase: String,
-    isGroupOwner: Boolean,
-    ssidError: String,
-    passphraseError: String,
     ipv4Address: String,
     ipv6Address: String,
-    isVpnActive: Boolean,
+    ssidError: String,
+    passphraseError: String,
     savedSsid: String,
     savedPassphrase: String,
-    detectedGatewayIp: String,
     onCreateGroup: (String, String, String, String) -> Unit,
-    onStopGroup: () -> Unit,
-    onStartVpnClient: () -> Unit,
-    onStopVpnClient: () -> Unit
+    onStopGroup: () -> Unit
 ) {
     var ssidInput by remember { mutableStateOf(savedSsid) }
     var passwordInput by remember { mutableStateOf(savedPassphrase) }
@@ -51,14 +60,12 @@ fun TetheringScreen(
     
     Column(
         modifier = modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .fillMaxWidth()
+            .padding(16.dp)
     ) {
         Text(
-            text = "Wi-Fi Direct Proxy",
-            style = MaterialTheme.typography.headlineMedium,
+            text = "Device Setup",
+            style = MaterialTheme.typography.headlineSmall,
             modifier = Modifier.padding(bottom = 16.dp)
         )
 
@@ -280,99 +287,11 @@ fun TetheringScreen(
             }
         }
 
-        // VPN Client section - only show when not group owner
-        if (!isGroupOwner) {
-            Spacer(modifier = Modifier.height(8.dp))
-            
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-            
-            Text(
-                text = "Client Mode (Auto-Detection)",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(vertical = 8.dp)
-            )
-            
-            Text(
-                text = "Connect to Wi-Fi Direct network created by host. Gateway IP is auto-detected.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 8.dp)
-            )
-            
-            // Display detected gateway IP
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = if (detectedGatewayIp.isNotEmpty()) 
-                        MaterialTheme.colorScheme.primaryContainer 
-                    else 
-                        MaterialTheme.colorScheme.errorContainer
-                )
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = if (detectedGatewayIp.isNotEmpty()) 
-                            stringResource(R.string.host_detected, detectedGatewayIp)
-                        else 
-                            stringResource(R.string.host_not_detected),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = if (detectedGatewayIp.isNotEmpty())
-                            MaterialTheme.colorScheme.onPrimaryContainer
-                        else
-                            MaterialTheme.colorScheme.onErrorContainer
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = if (detectedGatewayIp.isNotEmpty()) 
-                            stringResource(R.string.gateway_ready_msg)
-                        else 
-                            stringResource(R.string.gateway_not_detected_msg),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (detectedGatewayIp.isNotEmpty())
-                            MaterialTheme.colorScheme.onPrimaryContainer
-                        else
-                            MaterialTheme.colorScheme.onErrorContainer
-                    )
-                }
-            }
-            
-            if (isVpnActive) {
-                Button(
-                    onClick = onStopVpnClient,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error
-                    )
-                ) {
-                    Text(stringResource(R.string.btn_disconnect_vpn))
-                }
-            } else {
-                Button(
-                    onClick = onStartVpnClient,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.secondary
-                    )
-                ) {
-                    Text(stringResource(R.string.btn_start_vpn))
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
         // Display current group info if available
         if (groupSsid.isNotEmpty() && groupSsid != "N/A") {
+            Spacer(modifier = Modifier.height(16.dp))
             Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp)
+                modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
@@ -402,16 +321,6 @@ fun TetheringScreen(
                     }
                 }
             }
-        }
-
-        Card(
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(
-                text = statusText,
-                modifier = Modifier.padding(16.dp),
-                style = MaterialTheme.typography.bodyMedium
-            )
         }
     }
 }
