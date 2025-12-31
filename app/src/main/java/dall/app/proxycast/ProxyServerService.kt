@@ -298,7 +298,16 @@ class ProxyServerService : Service() {
             
             // Read authentication methods
             val methods = ByteArray(nmethods)
-            input.read(methods)
+            var bytesRead = 0
+            while (bytesRead < nmethods) {
+                val read = input.read(methods, bytesRead, nmethods - bytesRead)
+                if (read == -1) {
+                    Log.w(TAG, "SOCKS5: Unexpected end of stream reading methods")
+                    clientSocket.close()
+                    return@withContext
+                }
+                bytesRead += read
+            }
             
             // Step 2: Send authentication method selection (no authentication = 0x00)
             output.write(byteArrayOf(5, 0)) // SOCKS5, No authentication required
@@ -324,22 +333,55 @@ class ProxyServerService : Service() {
                 1 -> {
                     // IPv4 address (4 bytes)
                     val addr = ByteArray(4)
-                    input.read(addr)
+                    var bytesRead = 0
+                    while (bytesRead < 4) {
+                        val read = input.read(addr, bytesRead, 4 - bytesRead)
+                        if (read == -1) {
+                            Log.w(TAG, "SOCKS5: Unexpected end of stream reading IPv4")
+                            clientSocket.close()
+                            return@withContext
+                        }
+                        bytesRead += read
+                    }
                     destAddress = addr.joinToString(".") { (it.toInt() and 0xFF).toString() }
                 }
                 3 -> {
                     // Domain name
                     val domainLength = input.read()
+                    if (domainLength <= 0) {
+                        Log.w(TAG, "SOCKS5: Invalid domain length")
+                        clientSocket.close()
+                        return@withContext
+                    }
                     val domainBytes = ByteArray(domainLength)
-                    input.read(domainBytes)
+                    var bytesRead = 0
+                    while (bytesRead < domainLength) {
+                        val read = input.read(domainBytes, bytesRead, domainLength - bytesRead)
+                        if (read == -1) {
+                            Log.w(TAG, "SOCKS5: Unexpected end of stream reading domain")
+                            clientSocket.close()
+                            return@withContext
+                        }
+                        bytesRead += read
+                    }
                     destAddress = String(domainBytes)
                 }
                 4 -> {
-                    // IPv6 address (16 bytes) - not fully supported in this POC
+                    // IPv6 address (16 bytes)
                     val addr = ByteArray(16)
-                    input.read(addr)
-                    destAddress = "::1" // Placeholder
-                    Log.w(TAG, "SOCKS5: IPv6 not fully supported")
+                    var bytesRead = 0
+                    while (bytesRead < 16) {
+                        val read = input.read(addr, bytesRead, 16 - bytesRead)
+                        if (read == -1) {
+                            Log.w(TAG, "SOCKS5: Unexpected end of stream reading IPv6")
+                            clientSocket.close()
+                            return@withContext
+                        }
+                        bytesRead += read
+                    }
+                    // Format IPv6 address properly
+                    destAddress = formatIpv6Address(addr)
+                    Log.d(TAG, "SOCKS5: IPv6 destination: $destAddress")
                 }
                 else -> {
                     Log.w(TAG, "SOCKS5: Unsupported address type: $atyp")
@@ -434,5 +476,22 @@ class ProxyServerService : Service() {
                 clientSocket.close()
             } catch (ignored: IOException) {}
         }
+    }
+
+    /**
+     * Format IPv6 address from 16-byte array to standard string notation
+     */
+    private fun formatIpv6Address(addr: ByteArray): String {
+        require(addr.size == 16) { "IPv6 address must be 16 bytes" }
+        
+        // Convert bytes to hex groups
+        val groups = mutableListOf<String>()
+        for (i in 0 until 16 step 2) {
+            val group = ((addr[i].toInt() and 0xFF) shl 8) or (addr[i + 1].toInt() and 0xFF)
+            groups.add(group.toString(16))
+        }
+        
+        // Join with colons
+        return groups.joinToString(":")
     }
 }

@@ -17,6 +17,7 @@ import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.nio.ByteBuffer
+import java.util.*
 
 /**
  * VPN service that routes all device traffic through a SOCKS5 proxy server.
@@ -324,6 +325,12 @@ class VpnProxyService : VpnService() {
         }
     }
 
-    // Track logged destinations to avoid spam
-    private val loggedDestinations = mutableSetOf<String>()
+    // Track logged destinations to avoid spam (limit size to prevent memory leak)
+    private val loggedDestinations = Collections.newSetFromMap(
+        object : LinkedHashMap<String, Boolean>(100, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Boolean>?): Boolean {
+                return size > 100 // Keep max 100 unique destinations
+            }
+        }
+    )
 }
