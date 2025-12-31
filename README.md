@@ -397,6 +397,19 @@ To evolve this POC into a more robust solution, consider:
 - Be aware that proxy traffic can be intercepted
 - Understand the security implications before deployment
 
+## Wi-Fi Direct Tethering (imported from TetherFuseNet, Apache 2.0)
+
+This project incorporates Wi-Fi Direct tethering functionality adapted from [pyamsoft/tetherfusenet](https://github.com/pyamsoft/tetherfusenet), licensed under Apache License 2.0.
+
+**Imported files** (package paths adapted to `dall.app.proxycast`):
+- Wi-Fi Direct server core (`WifiDirectServer`, `WifiDirectReceiver`, `WifiDirectRegister`)
+- Configuration classes (`WiDiConfig`, `WiFiDirectError`, `WidiNetworkEvent`)
+- Server infrastructure (`ServerDefaults`, `ServerNetworkBand`, `BroadcastServerImplementation`, `BroadcastNetworkStatus`)
+- Lock management (`Locker`, `WiFiLocker`, `AbstractLocker`)
+- Supporting utilities (`ThreadEnforcer`, `AppDevEnvironment`, `Timber` facade)
+
+All imported files retain their original Apache 2.0 license headers. See [TetherFuseNet repository](https://github.com/pyamsoft/tetherfusenet) for the original implementation.
+
 ## License
 
 See repository license for details.
