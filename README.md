@@ -4,9 +4,9 @@ A proof-of-concept Android application demonstrating Wi-Fi Direct group creation
 
 ## Overview
 
-ProxyCast allows Android devices to create ad-hoc network connections using Wi-Fi Direct (Wi-Fi P2P) and route traffic through an HTTP CONNECT proxy server. One device acts as the **host** (group owner), creating a Wi-Fi Direct group and running a proxy server on port 8080. Other devices act as **clients**, discovering and connecting to the host to route their network traffic through the proxy.
+ProxyCast allows Android devices to create ad-hoc network connections using Wi-Fi Direct (Wi-Fi P2P) and route traffic through an HTTP CONNECT proxy server. One device acts as the **host** (group owner), creating a Wi-Fi Direct group and running a proxy server on port 8080. Other devices act as **clients**, connecting to the host to route their network traffic through the proxy.
 
-The app now includes **VPN-based client mode** (similar to pdaNet), which automatically routes all device traffic through the proxy using Android's VPN Service API, eliminating the need to manually configure proxy settings in individual apps.
+The app features **VPN-based client mode with automatic host detection** (similar to pdaNet), which automatically detects the host IP via the Wi-Fi Direct gateway and routes all device traffic through the proxy using Android's VPN Service API, eliminating the need for manual peer discovery or proxy configuration.
 
 ## Features
 
@@ -14,9 +14,9 @@ The app now includes **VPN-based client mode** (similar to pdaNet), which automa
 - **Band Selection (Android 10+)**: Choose between 2.4 GHz, 5 GHz, or auto band selection for Wi-Fi Direct group
 - **IP Address Display**: Shows both IPv4 and IPv6 addresses when available after connection
 - **HTTP CONNECT Proxy Server**: Runs on port 8080 to proxy client traffic
-- **VPN Client Mode**: Automatically routes all device traffic through the proxy using Android VPN Service (similar to pdaNet)
-- **Manual Proxy Mode**: Traditional proxy configuration for individual apps
-- **Peer Discovery & Connection**: Client devices can discover and connect to available Wi-Fi Direct groups
+- **Automatic Host Detection**: Client automatically detects host IP via Wi-Fi Direct gateway (similar to pdaNet)
+- **VPN Client Mode**: Automatically routes all device traffic through the proxy using Android VPN Service
+- **Simplified Client Flow**: Single-button "Iniciar VPN / Conectar" workflow with auto-detected gateway IP display
 - **Group Credentials Display**: Shows actual SSID, passphrase, and IP addresses for easy client configuration
 - **Foreground Service**: Proxy and VPN services run as foreground services with persistent notifications
 - **Runtime Permission Handling**: Manages all required Android permissions dynamically
@@ -35,11 +35,11 @@ The app requires the following permissions (requested at runtime):
 
 | Permission | Purpose | Required On |
 |-----------|---------|-------------|
-| `ACCESS_FINE_LOCATION` | Wi-Fi Direct peer discovery | All versions |
+| `ACCESS_FINE_LOCATION` | Wi-Fi Direct operations and SSID detection | All versions |
 | `ACCESS_COARSE_LOCATION` | Wi-Fi Direct on Android 12+ | API 31+ |
-| `ACCESS_WIFI_STATE` | Read Wi-Fi state | All versions |
+| `ACCESS_WIFI_STATE` | Read Wi-Fi state and detect gateway | All versions |
 | `CHANGE_WIFI_STATE` | Modify Wi-Fi state | All versions |
-| `ACCESS_NETWORK_STATE` | Monitor network connectivity | All versions |
+| `ACCESS_NETWORK_STATE` | Monitor network connectivity and gateway detection | All versions |
 | `INTERNET` | Network access for proxy | All versions |
 | `NEARBY_WIFI_DEVICES` | Wi-Fi Direct on Android 13+ | API 33+ |
 | `FOREGROUND_SERVICE` | Run proxy as foreground service | API 26+ |
@@ -95,52 +95,61 @@ The app requires the following permissions (requested at runtime):
 
 ### Client Device
 
-**Option 1: VPN Client Mode (Automatic - Recommended)**
+**VPN Client Mode with Automatic Host Detection (Recommended)**
+
+The client now features **PdaNet-style automatic host IP detection**, eliminating the need for manual peer discovery.
 
 1. **Launch the app** on a device that will connect as a client
 2. **Grant all requested permissions** when prompted
-3. **Tap "Discover Peers (Client)"** to scan for available Wi-Fi Direct groups
-   - The app will display the number of discovered peers
-4. **Tap "Connect to First Peer"** to connect to the host device
-   - The device will connect to the Wi-Fi Direct group
-   - Connection status will be displayed in the UI
-5. **IMPORTANT: Wait for connection to complete** - the status will show:
-   - Group SSID and passphrase
-   - Group owner (host) IP address
-   - IPv4 address (if available)
-   - IPv6 address (if available)
-   - Proxy configuration: `<host-ip>:8080`
-   - **You MUST be connected to the group owner before starting the VPN**
-6. **Tap "Start VPN Client"** to enable automatic traffic routing
+3. **Connect to the Wi-Fi Direct network** created by the host device:
+   - Go to your device's Wi-Fi settings
+   - Find and connect to the network with SSID starting with `DIRECT-` (e.g., `DIRECT-My-Network`)
+   - Enter the passphrase shown on the host device
+4. **Return to the app** - The app will automatically detect the host IP:
+   - The UI will display "**Host Detectado: [gateway IP]**" (e.g., `192.168.49.1`)
+   - The gateway IP is automatically extracted from your active Wi-Fi connection using `ConnectivityManager`
+   - No manual configuration or peer discovery needed!
+5. **Tap "Iniciar VPN / Conectar"** to start the VPN client with auto-detected host IP
    - **First time only**: A system permission dialog will appear asking to grant VPN permission
      - Tap "OK" to grant permission
      - This permission is required only once - subsequent VPN starts won't show the dialog
-   - If you deny permission, you'll need to restart the VPN to see the dialog again
+   - If you deny permission, you'll need to tap the button again to retry
    - All device traffic will automatically route through the proxy
    - A persistent notification will show the VPN is active
-7. **To stop**, tap "Stop VPN Client" to disconnect the VPN tunnel
+6. **To stop**, tap "Desconectar VPN" to disconnect the VPN tunnel
+
+**How Automatic Detection Works:**
+- 🔍 Uses `ConnectivityManager` to get active Wi-Fi network information
+- 📡 Extracts `LinkProperties` and finds the default route (gateway)
+- 🎯 Typical Wi-Fi Direct gateway is `192.168.49.1`
+- ✨ No manual IP entry or peer discovery required
+- ⚡ Similar to pdaNet's automatic detection
 
 **VPN Permission Dialog:**
 - 📱 The permission dialog appears **only the first time** you start the VPN
 - ✅ Once granted, the VPN will start directly on subsequent uses
-- ❌ If you deny permission, you must tap "Start VPN Client" again to retry
+- ❌ If you deny permission, you must tap "Iniciar VPN / Conectar" again to retry
 - 🔐 This permission allows the app to route your device traffic through the proxy
 
-**Option 2: Manual Proxy Configuration**
-
-1. Follow steps 1-5 from Option 1
-2. **Configure apps to use the proxy manually**:
-   - Set proxy address to the displayed host IP (use IPv4 or IPv6 as supported by your app)
-   - Set proxy port to `8080`
-   - Example: `192.168.49.1:8080` (IPv4) or `[fe80::1]:8080` (IPv6)
-   - Note: Only apps that support HTTP proxy will work with this method
-
-**VPN Client Mode Benefits:**
+**Client Mode Benefits:**
+- ✅ **Automatic host IP detection** - no manual configuration needed
+- ✅ **Single button workflow** - just "Iniciar VPN / Conectar"
 - ✅ Automatically routes ALL device traffic through the proxy
 - ✅ No need to configure individual apps
 - ✅ Works with apps that don't support manual proxy settings
 - ✅ Similar to how pdaNet works
 - ✅ Permission dialog appears only once
+- ✅ Clear status display showing detected gateway IP
+
+**Troubleshooting:**
+- If "Host not detected" is shown:
+  - Ensure you're connected to a Wi-Fi Direct network (SSID starts with `DIRECT-`)
+  - Check that Wi-Fi is enabled and connected
+  - Try disconnecting and reconnecting to the Wi-Fi Direct network
+- If VPN fails to start:
+  - Verify the host device has started the proxy server
+  - Ensure you have a valid connection to the Wi-Fi Direct network
+  - Check that the detected gateway IP is correct (typically `192.168.49.1`)
 
 ## Compatibility Notes
 
@@ -223,8 +232,8 @@ This is a **proof-of-concept** implementation with the following limitations:
 - **Single group support**: Only one Wi-Fi Direct group at a time
 - **No automatic reconnection**: Manual reconnection required if connection drops
 - **Basic error handling**: Minimal error recovery and user feedback
-- **Manual peer selection**: Connects to first discovered peer only
 - **No persistent configuration**: Settings are lost when app is closed
+- **Gateway detection**: Requires active Wi-Fi connection to detect host IP automatically
 - **Band selection limitations**:
   - Requires Android 10+ (API 29)
   - Not supported on all devices
@@ -262,9 +271,9 @@ To evolve this POC into a more robust solution, consider:
 ### User Experience
 - [ ] Improved error messages and recovery suggestions
 - [ ] Connection quality indicators
-- [ ] Saved peer list for quick reconnection
 - [ ] Advanced settings for power users
 - [ ] Network traffic statistics
+- [ ] Background gateway monitoring for automatic reconnection
 
 ### Code Quality
 - [ ] Comprehensive error handling and logging

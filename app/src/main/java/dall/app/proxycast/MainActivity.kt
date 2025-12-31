@@ -6,6 +6,10 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.net.wifi.WifiInfo
+import android.net.wifi.WifiManager
 import android.net.wifi.p2p.WifiP2pConfig
 import android.net.wifi.p2p.WifiP2pDevice
 import android.net.wifi.p2p.WifiP2pDeviceList
@@ -71,6 +75,7 @@ class MainActivity : ComponentActivity() {
     private var proxyHostAddress by mutableStateOf("")
     private var savedSsid by mutableStateOf("")
     private var savedPassphrase by mutableStateOf("")
+    private var detectedGatewayIp by mutableStateOf("")
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -159,10 +164,9 @@ class MainActivity : ComponentActivity() {
                         isVpnActive = isVpnActive,
                         savedSsid = savedSsid,
                         savedPassphrase = savedPassphrase,
+                        detectedGatewayIp = detectedGatewayIp,
                         onCreateGroup = { ssid, password, band, ipPref -> createGroup(ssid, password, band, ipPref) },
                         onStopGroup = { stopGroup() },
-                        onDiscoverPeers = { discoverPeers() },
-                        onConnectToPeer = { connectToFirstPeer() },
                         onStartVpnClient = { startVpnClient() },
                         onStopVpnClient = { stopVpnClient() }
                     )
@@ -183,6 +187,9 @@ class MainActivity : ComponentActivity() {
         } else {
             registerReceiver(receiver, intentFilter)
         }
+        
+        // Update detected gateway IP when activity resumes
+        updateDetectedGatewayIp()
     }
 
     override fun onPause() {
@@ -545,15 +552,30 @@ class MainActivity : ComponentActivity() {
     private fun startVpnClient() {
         Log.d(TAG, "startVpnClient() called")
         
-        if (proxyHostAddress.isEmpty()) {
-            val message = "Cannot start VPN: Connect to a Wi-Fi Direct group as a client first to get the proxy server address."
+        // Auto-detect gateway IP from active Wi-Fi connection
+        val gatewayIp = detectGatewayIp()
+        
+        if (gatewayIp.isEmpty()) {
+            val message = "Cannot start VPN: No gateway IP detected. Please connect to a Wi-Fi Direct network (SSID starting with DIRECT-)."
             statusText = message
-            Toast.makeText(this, "Must connect to group owner first before starting VPN", Toast.LENGTH_LONG).show()
-            Log.w(TAG, "startVpnClient aborted: proxyHostAddress is empty")
+            Toast.makeText(this, "No gateway IP detected. Connect to Wi-Fi Direct network first.", Toast.LENGTH_LONG).show()
+            Log.w(TAG, "startVpnClient aborted: No gateway IP detected")
             return
         }
         
-        Log.d(TAG, "Starting VPN client with proxy: $proxyHostAddress:${ProxyServerService.PROXY_PORT}")
+        // Check if connected to a DIRECT- SSID
+        if (!isConnectedToDirectSsid()) {
+            val message = "Warning: Not connected to a DIRECT- SSID. Detected gateway: $gatewayIp. Proceeding anyway..."
+            statusText = message
+            Toast.makeText(this, "Warning: Not connected to DIRECT- SSID. Proceeding with detected gateway...", Toast.LENGTH_LONG).show()
+            Log.w(TAG, "Not connected to DIRECT- SSID, but proceeding with gateway: $gatewayIp")
+        }
+        
+        // Update detected gateway and proxy host address
+        detectedGatewayIp = gatewayIp
+        proxyHostAddress = gatewayIp
+        
+        Log.d(TAG, "Starting VPN client with auto-detected proxy: $proxyHostAddress:${ProxyServerService.PROXY_PORT}")
         
         // Check if VPN permission is needed
         val vpnIntent = android.net.VpnService.prepare(this)
@@ -623,6 +645,95 @@ class MainActivity : ComponentActivity() {
 
         return permissions.all {
             ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+
+    /**
+     * Auto-detect gateway IP from active Wi-Fi connection.
+     * This is used to automatically find the host IP when connected to a Wi-Fi Direct group.
+     * Typical P2P gateway is 192.168.49.1.
+     * @return Gateway IP address as String, or empty string if not found
+     */
+    @SuppressLint("MissingPermission")
+    private fun detectGatewayIp(): String {
+        try {
+            val connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            
+            // Get active network
+            val activeNetwork = connectivityManager.activeNetwork
+            if (activeNetwork == null) {
+                Log.w(TAG, "No active network")
+                return ""
+            }
+            
+            // Check if it's a Wi-Fi connection
+            val networkCapabilities = connectivityManager.getNetworkCapabilities(activeNetwork)
+            if (networkCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) != true) {
+                Log.w(TAG, "Active network is not Wi-Fi")
+                return ""
+            }
+            
+            // Get link properties to extract gateway
+            val linkProperties = connectivityManager.getLinkProperties(activeNetwork)
+            if (linkProperties == null) {
+                Log.w(TAG, "No link properties available")
+                return ""
+            }
+            
+            // Get the default route (gateway)
+            val routes = linkProperties.routes
+            for (route in routes) {
+                if (route.isDefaultRoute) {
+                    val gateway = route.gateway
+                    if (gateway is Inet4Address) {
+                        val gatewayIp = gateway.hostAddress ?: ""
+                        Log.d(TAG, "Detected gateway IP: $gatewayIp")
+                        return gatewayIp
+                    }
+                }
+            }
+            
+            Log.w(TAG, "No default route/gateway found")
+            return ""
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error detecting gateway IP", e)
+            return ""
+        }
+    }
+
+    /**
+     * Check if currently connected to a Wi-Fi Direct network (SSID starts with "DIRECT-")
+     * @return true if connected to DIRECT- SSID, false otherwise
+     */
+    @SuppressLint("MissingPermission")
+    private fun isConnectedToDirectSsid(): Boolean {
+        try {
+            val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+            val wifiInfo = wifiManager.connectionInfo
+            
+            if (wifiInfo != null) {
+                val ssid = wifiInfo.ssid?.trim('"') ?: ""
+                Log.d(TAG, "Current Wi-Fi SSID: $ssid")
+                return ssid.startsWith("DIRECT-", ignoreCase = true)
+            }
+            
+            return false
+        } catch (e: Exception) {
+            Log.e(TAG, "Error checking SSID", e)
+            return false
+        }
+    }
+
+    /**
+     * Update the detected gateway IP state variable.
+     * This is called periodically to keep the UI updated with the current gateway.
+     */
+    private fun updateDetectedGatewayIp() {
+        val gateway = detectGatewayIp()
+        detectedGatewayIp = gateway
+        if (gateway.isNotEmpty()) {
+            Log.d(TAG, "Gateway IP updated: $gateway")
         }
     }
 
@@ -847,10 +958,9 @@ fun WifiDirectProxyScreen(
     isVpnActive: Boolean,
     savedSsid: String,
     savedPassphrase: String,
+    detectedGatewayIp: String,
     onCreateGroup: (String, String, String, String) -> Unit,
     onStopGroup: () -> Unit,
-    onDiscoverPeers: () -> Unit,
-    onConnectToPeer: () -> Unit,
     onStartVpnClient: () -> Unit,
     onStopVpnClient: () -> Unit
 ) {
@@ -1096,42 +1206,63 @@ fun WifiDirectProxyScreen(
             }
         }
 
-        Button(
-            onClick = onDiscoverPeers,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 8.dp)
-        ) {
-            Text("Discover Peers (Client)")
-        }
-
-        Button(
-            onClick = onConnectToPeer,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 8.dp)
-        ) {
-            Text("Connect to First Peer")
-        }
-
-        // VPN Client buttons - only show when not group owner
+        // VPN Client section - only show when not group owner
         if (!isGroupOwner) {
             Spacer(modifier = Modifier.height(8.dp))
             
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
             
             Text(
-                text = "VPN Client Mode",
+                text = "Client Mode (Auto-Detection)",
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(vertical = 8.dp)
             )
             
             Text(
-                text = "Automatically route all device traffic through the proxy",
+                text = "Connect to Wi-Fi Direct network created by host. Gateway IP is auto-detected.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(bottom = 8.dp)
             )
+            
+            // Display detected gateway IP
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (detectedGatewayIp.isNotEmpty()) 
+                        MaterialTheme.colorScheme.primaryContainer 
+                    else 
+                        MaterialTheme.colorScheme.errorContainer
+                )
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = if (detectedGatewayIp.isNotEmpty()) 
+                            "Host Detectado: $detectedGatewayIp" 
+                        else 
+                            "Host not detected",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = if (detectedGatewayIp.isNotEmpty())
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        else
+                            MaterialTheme.colorScheme.onErrorContainer
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = if (detectedGatewayIp.isNotEmpty()) 
+                            "Ready to connect via VPN. Gateway IP auto-detected from Wi-Fi network." 
+                        else 
+                            "Connect to a Wi-Fi Direct network (SSID: DIRECT-*) to auto-detect gateway IP.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (detectedGatewayIp.isNotEmpty())
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        else
+                            MaterialTheme.colorScheme.onErrorContainer
+                    )
+                }
+            }
             
             if (isVpnActive) {
                 Button(
@@ -1143,7 +1274,7 @@ fun WifiDirectProxyScreen(
                         containerColor = MaterialTheme.colorScheme.error
                     )
                 ) {
-                    Text("Stop VPN Client")
+                    Text("Desconectar VPN")
                 }
             } else {
                 Button(
@@ -1155,7 +1286,7 @@ fun WifiDirectProxyScreen(
                         containerColor = MaterialTheme.colorScheme.secondary
                     )
                 ) {
-                    Text("Start VPN Client")
+                    Text("Iniciar VPN / Conectar")
                 }
             }
         }

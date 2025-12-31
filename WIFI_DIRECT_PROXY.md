@@ -3,13 +3,12 @@
 ## Overview
 This is a proof-of-concept implementation of a Wi-Fi Direct proxy server for Android. It allows one device to act as a proxy server (host) and other devices to connect as clients and route their traffic through the proxy.
 
-The app supports two client modes:
-- **VPN Client Mode**: Automatically routes all device traffic through the proxy using Android VPN Service (similar to pdaNet)
-- **Manual Proxy Mode**: Traditional manual proxy configuration for individual apps
+The app features **automatic host IP detection** (similar to pdaNet), which automatically detects the host IP via the Wi-Fi Direct gateway, eliminating the need for manual peer discovery or configuration.
 
 ## Features
 - Wi-Fi Direct group creation (host mode) with custom SSID and passphrase
-- Peer discovery and connection (client mode)
+- **Automatic host IP detection** via Wi-Fi Direct gateway for clients
+- **Simplified single-button client workflow** - "Iniciar VPN / Conectar"
 - HTTP CONNECT proxy server on port 8080
 - VPN-based automatic traffic routing for clients
 - Display of actual group SSID and passphrase
@@ -30,22 +29,23 @@ The app supports two client modes:
 6. Note the SSID, passphrase, and IP address shown in the UI
 7. Share these credentials with client devices
 
-### Client Device
+### Client Device (Automatic Detection)
 1. Open the app
 2. Grant all requested permissions
-3. Tap "Discover Peers (Client)" to find available Wi-Fi Direct groups
-4. Tap "Connect to First Peer" to connect to the host device
-5. Once connected, the status will show the group SSID, passphrase, and proxy server address
+3. Go to your device's Wi-Fi settings and connect to the Wi-Fi Direct network (SSID starts with `DIRECT-`)
+4. Return to the app - it will automatically detect the host IP (gateway)
+5. The UI will show "**Host Detectado: [gateway IP]**" (e.g., `192.168.49.1`)
 
-**VPN Client Mode (Recommended):**
-6. Tap "Start VPN Client" to enable automatic traffic routing
-7. Grant VPN permission when prompted
+**VPN Client Mode:**
+6. Tap "Iniciar VPN / Conectar" to enable automatic traffic routing
+7. Grant VPN permission when prompted (first time only)
 8. All device traffic will now automatically route through the proxy
-9. Tap "Stop VPN Client" when you want to disconnect
+9. Tap "Desconectar VPN" when you want to disconnect
 
-**Manual Proxy Mode:**
-6. Configure your apps to use the proxy: `<host-ip>:8080`
-   - Note: Only works with apps that support HTTP proxy settings
+**How it works:**
+- Uses `ConnectivityManager` to detect active Wi-Fi connection
+- Extracts gateway IP from `LinkProperties` (typically `192.168.49.1` for Wi-Fi Direct)
+- No manual peer discovery needed!
 
 ## Requirements
 - Android 8.0 (API 26) or higher
