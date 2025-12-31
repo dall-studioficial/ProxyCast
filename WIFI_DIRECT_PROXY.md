@@ -1,17 +1,19 @@
-# Wi-Fi Direct + HTTP CONNECT Proxy POC
+# Wi-Fi Direct + Dual Proxy (HTTP CONNECT + SOCKS5) POC
 
 ## Overview
 This is a proof-of-concept implementation of a Wi-Fi Direct proxy server for Android. It allows one device to act as a proxy server (host) and other devices to connect as clients and route their traffic through the proxy.
 
-The app features **automatic host IP detection** (similar to pdaNet), which automatically detects the host IP via the Wi-Fi Direct gateway, eliminating the need for manual peer discovery or configuration.
+The app features **automatic host IP detection** (similar to PdaNet), which automatically detects the host IP via the Wi-Fi Direct gateway, eliminating the need for manual peer discovery or configuration.
 
 ## Features
 - Wi-Fi Direct group creation (host mode) with custom SSID and passphrase
 - **Automatic host IP detection** via Wi-Fi Direct gateway for clients
 - **Simplified single-button client workflow** - "Iniciar VPN / Conectar"
-- HTTP CONNECT proxy server on port 8080
-- VPN-based automatic traffic routing for clients
-- Display of actual group SSID and passphrase
+- **Dual proxy servers**:
+  - HTTP CONNECT proxy server on port 8080
+  - SOCKS5 proxy server on port 1080 (used by VPN client)
+- VPN-based automatic traffic routing for clients (POC implementation)
+- Display of actual group SSID, passphrase, and IP addresses
 - Foreground service with notification
 - Runtime permission handling
 - Support for Android 8.0 (API 26) to latest versions
@@ -25,7 +27,9 @@ The app features **automatic host IP detection** (similar to pdaNet), which auto
    - Leave empty to use system-generated defaults
    - Custom SSID/password requires Android 10+ (API 29)
 4. Tap "Create Group + Start Proxy (Host)"
-5. The device will create a Wi-Fi Direct group and start the proxy server on port 8080
+5. The device will create a Wi-Fi Direct group and start both proxy servers:
+   - HTTP CONNECT on port 8080
+   - SOCKS5 on port 1080
 6. Note the SSID, passphrase, and IP address shown in the UI
 7. Share these credentials with client devices
 
@@ -39,13 +43,20 @@ The app features **automatic host IP detection** (similar to pdaNet), which auto
 **VPN Client Mode:**
 6. Tap "Iniciar VPN / Conectar" to enable automatic traffic routing
 7. Grant VPN permission when prompted (first time only)
-8. All device traffic will now automatically route through the proxy
+8. VPN will activate and attempt to route traffic through the SOCKS5 proxy
 9. Tap "Desconectar VPN" when you want to disconnect
 
 **How it works:**
 - Uses `ConnectivityManager` to detect active Wi-Fi connection
 - Extracts gateway IP from `LinkProperties` (typically `192.168.49.1` for Wi-Fi Direct)
 - No manual peer discovery needed!
+- VPN routes to SOCKS5 proxy at detected gateway IP
+
+**Current VPN Implementation (POC):**
+- ⚠️ VPN captures packets but does NOT forward them (logs only)
+- ⚠️ For production use, requires native tun2socks binaries
+- ✅ Demonstrates proper VPN setup (10.0.0.2/32, 0.0.0.0/0, DNS, MTU)
+- See main README for production implementation guide
 
 ## Requirements
 - Android 8.0 (API 26) or higher
@@ -57,8 +68,24 @@ The app features **automatic host IP detection** (similar to pdaNet), which auto
 ### Components
 - **MainActivity**: UI and Wi-Fi Direct management
 - **WifiDirectReceiver**: Broadcast receiver for Wi-Fi P2P events
-- **ProxyServerService**: Foreground service implementing HTTP CONNECT proxy (host mode)
-- **VpnProxyService**: VPN service for automatic traffic routing through proxy (client mode)
+- **ProxyServerService**: Foreground service implementing both HTTP CONNECT (port 8080) and SOCKS5 (port 1080) proxy servers (host mode)
+- **VpnProxyService**: VPN service for automatic traffic routing through SOCKS5 proxy (client mode, POC implementation)
+
+### Proxy Servers
+**HTTP CONNECT Proxy (Port 8080)**
+- Full RFC 2817 HTTP CONNECT implementation
+- Handles CONNECT requests for TCP tunneling
+- Used for manual proxy configuration in apps/browsers
+- Bidirectional relay between client and target
+
+**SOCKS5 Proxy (Port 1080)**
+- RFC 1928 SOCKS5 implementation
+- No authentication required (method 0x00)
+- Supports CONNECT command for TCP connections
+- Handles IPv4, IPv6, and domain name destinations
+- Proper byte-level protocol handling with complete reads
+- Used by VPN client for traffic forwarding
+- Bidirectional relay between client and target
 
 ### Permissions
 - `ACCESS_FINE_LOCATION`: Required for Wi-Fi Direct peer discovery
@@ -89,7 +116,12 @@ On Android 10 (API 29) and higher, you can configure a custom network name (SSID
 - Basic error handling
 - Single group support
 - No automatic reconnection
-- POC-level implementation (minimal features)
+- POC-level VPN implementation:
+  - VPN captures and logs packets but doesn't forward them
+  - Requires native tun2socks binaries for production use
+  - See main README "Transparent Tunneling Implementation" section
+- HTTP CONNECT and SOCKS5 proxies are fully functional
+- Minimal features (proof-of-concept)
 
 ## Testing
 1. Install the app on two physical Android devices

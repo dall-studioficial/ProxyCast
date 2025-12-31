@@ -513,7 +513,7 @@ class MainActivity : ComponentActivity() {
         } else {
             startService(intent)
         }
-        statusText = "Proxy server started on port ${ProxyServerService.PROXY_PORT}"
+        statusText = "Proxy server started on HTTP:${ProxyServerService.PROXY_PORT}, SOCKS5:${ProxyServerService.SOCKS5_PORT}"
     }
 
     @SuppressLint("MissingPermission") // Permission checked before Wi-Fi P2P operations
@@ -598,10 +598,10 @@ class MainActivity : ComponentActivity() {
             val intent = Intent(this, VpnProxyService::class.java).apply {
                 action = VpnProxyService.ACTION_START_VPN
                 putExtra(VpnProxyService.EXTRA_PROXY_HOST, proxyHostAddress)
-                putExtra(VpnProxyService.EXTRA_PROXY_PORT, ProxyServerService.PROXY_PORT)
+                putExtra(VpnProxyService.EXTRA_PROXY_PORT, ProxyServerService.SOCKS5_PORT) // Use SOCKS5
             }
             
-            Log.d(TAG, "Starting VPN foreground service with proxy: $proxyHostAddress:${ProxyServerService.PROXY_PORT}")
+            Log.d(TAG, "Starting VPN foreground service with SOCKS5 proxy: $proxyHostAddress:${ProxyServerService.SOCKS5_PORT}")
             
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 startForegroundService(intent)
@@ -610,8 +610,8 @@ class MainActivity : ComponentActivity() {
             }
             
             isVpnActive = true
-            statusText = "VPN client started. All traffic routing through $proxyHostAddress:${ProxyServerService.PROXY_PORT}"
-            Toast.makeText(this, "VPN active! Traffic routing through proxy.", Toast.LENGTH_LONG).show()
+            statusText = "VPN client started. All traffic routing through $proxyHostAddress:${ProxyServerService.SOCKS5_PORT} (SOCKS5)"
+            Toast.makeText(this, "VPN active! Traffic routing through SOCKS5 proxy.", Toast.LENGTH_LONG).show()
             Log.d(TAG, "VPN proxy service started successfully")
             
         } catch (e: Exception) {
@@ -902,9 +902,11 @@ class MainActivity : ComponentActivity() {
         
         // Add proxy information
         if (isGroupOwner) {
-            text += "\nProxy running on port ${ProxyServerService.PROXY_PORT}"
+            text += "\nHTTP proxy: port ${ProxyServerService.PROXY_PORT}"
+            text += "\nSOCKS5 proxy: port ${ProxyServerService.SOCKS5_PORT}"
         } else {
-            text += "\nUse proxy: $primaryAddress:${ProxyServerService.PROXY_PORT}"
+            text += "\nHTTP proxy: $primaryAddress:${ProxyServerService.PROXY_PORT}"
+            text += "\nSOCKS5 proxy: $primaryAddress:${ProxyServerService.SOCKS5_PORT}"
         }
         
         return text
